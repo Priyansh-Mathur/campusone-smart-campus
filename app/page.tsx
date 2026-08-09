@@ -84,7 +84,7 @@ export default function Home(){
         <footer><span>CampusOne · Northbridge Institute of Technology</span><span>System status: <b>● All services operational</b></span></footer>
       </div>
     </section>
-    <nav className="mobile-nav">{modules.slice(0,5).map(([name,icon])=><button key={name} className={active===name?"active":""} onClick={()=>setActive(name)}><span>{icon}</span>{name}</button>)}</nav>
+    <nav className="mobile-nav">{modules.filter(([name])=>name!=="Admin"||role==="Admin").map(([name,icon])=><button key={name} className={active===name?"active":""} onClick={()=>setActive(name)}><span>{icon}</span>{name}</button>)}</nav>
     {modal&&<Modal type={modal} close={()=>setModal(null)} person={person} submit={createRecord}/>} 
     {toast&&<div className="toast"><span>✓</span>{toast}</div>}
   </main>
