@@ -1,111 +1,119 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
-const nav = ["Overview", "Attendance", "Assignments", "Events", "Placements"];
-const roleCopy: Record<string, { name: string; subtitle: string }> = {
-  Student: { name: "Aarav Mehta", subtitle: "B.Tech CSE · Semester 6" },
-  Faculty: { name: "Dr. Maya Kapoor", subtitle: "Computer Science Faculty" },
-  Coordinator: { name: "Riya Sharma", subtitle: "Campus Event Coordinator" },
-  Admin: { name: "Vikram Rao", subtitle: "Platform Administrator" },
+type Role = "Student" | "Faculty" | "Coordinator" | "Admin";
+type RecordItem = { id:number; kind:string; title:string; subtitle:string; status:string; meta:Record<string,unknown>; created_at:number };
+type Activity = { id:number; message:string; actor:string; created_at:number };
+const modules = [
+  ["Overview","⌂"],["Attendance","✓"],["Assignments","▤"],["Events","◇"],["Placements","↗"],["Clubs","◎"],["Calendar","▱"],["Messages","♧"],["Admin","⚙"],
+];
+const people:Record<Role,{name:string;sub:string;initials:string}> = {
+  Student:{name:"Aarav Mehta",sub:"B.Tech CSE · Semester 6",initials:"AM"},
+  Faculty:{name:"Dr. Maya Kapoor",sub:"Computer Science Faculty",initials:"MK"},
+  Coordinator:{name:"Riya Sharma",sub:"Campus Event Coordinator",initials:"RS"},
+  Admin:{name:"Vikram Rao",sub:"Platform Administrator",initials:"VR"},
 };
-
-const assignments = [
-  { title: "Neural Networks — Lab 04", subject: "Machine Learning", due: "Today, 11:59 PM", tone: "urgent" },
-  { title: "Database Normalization", subject: "DBMS", due: "12 Aug", tone: "normal" },
-  { title: "Socket Programming", subject: "Computer Networks", due: "15 Aug", tone: "normal" },
+const schedule = [
+  {time:"09:00",end:"10:00",title:"Machine Learning",place:"Lab 302",faculty:"Dr. Maya Kapoor",color:"blue"},
+  {time:"11:00",end:"12:00",title:"Computer Networks",place:"Room 214",faculty:"Prof. Arjun Nair",color:"purple"},
+  {time:"14:30",end:"15:30",title:"Database Systems",place:"Room 108",faculty:"Dr. Nisha Verma",color:"orange"},
+];
+const attendance = [
+  {subject:"Machine Learning",code:"CS601",present:22,total:24,pct:92},
+  {subject:"Database Systems",code:"CS603",present:21,total:24,pct:88},
+  {subject:"Computer Networks",code:"CS605",present:19,total:24,pct:79},
+  {subject:"Software Engineering",code:"CS607",present:23,total:25,pct:92},
 ];
 
-const events = [
-  { day: "12", mon: "AUG", title: "DevFusion 4.0", meta: "Main Auditorium · 10:00 AM", tag: "Hackathon" },
-  { day: "16", mon: "AUG", title: "AI & Future of Work", meta: "Seminar Hall B · 2:30 PM", tag: "Seminar" },
-  { day: "21", mon: "AUG", title: "Founders Mixer", meta: "Innovation Hub · 5:00 PM", tag: "Networking" },
-];
+export default function Home(){
+  const [active,setActive]=useState("Overview");
+  const [role,setRole]=useState<Role>("Student");
+  const [records,setRecords]=useState<RecordItem[]>([]);
+  const [activity,setActivity]=useState<Activity[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [toast,setToast]=useState("");
+  const [modal,setModal]=useState<string|null>(null);
+  const [search,setSearch]=useState("");
+  const [dark,setDark]=useState(false);
+  const person=people[role];
 
-export default function Home() {
-  const [active, setActive] = useState("Overview");
-  const [role, setRole] = useState("Student");
-  const [noticeOpen, setNoticeOpen] = useState(false);
-  const [toast, setToast] = useState("");
-  const [registered, setRegistered] = useState<string[]>(["DevFusion 4.0"]);
-  const person = roleCopy[role];
-  const greeting = useMemo(() => new Date().getHours() < 12 ? "Good morning" : "Good afternoon", []);
-
-  function notify(message: string) {
-    setToast(message);
-    window.setTimeout(() => setToast(""), 2400);
+  async function load(){
+    try{ const r=await fetch("/api/campus"); const data=await r.json(); setRecords(data.records||[]); setActivity(data.activity||[]); }
+    catch{ setToast("Could not load campus data"); } finally{setLoading(false)}
   }
-
-  function toggleEvent(title: string) {
-    setRegistered((items) => items.includes(title) ? items.filter((x) => x !== title) : [...items, title]);
-    notify(registered.includes(title) ? "Registration cancelled" : "You’re registered — see you there!");
+  useEffect(()=>{load()},[]);
+  function flash(msg:string){setToast(msg);setTimeout(()=>setToast(""),2600)}
+  async function changeStatus(item:RecordItem,status:string){
+    setRecords(v=>v.map(x=>x.id===item.id?{...x,status}:x));
+    const r=await fetch("/api/campus",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({id:item.id,status,actor:person.name})});
+    if(!r.ok){flash("Update failed");await load()} else flash(`Successfully ${status}`);
   }
+  async function createRecord(e:FormEvent<HTMLFormElement>){
+    e.preventDefault(); const fd=new FormData(e.currentTarget); const kind=String(fd.get("kind"));
+    const body={kind,title:String(fd.get("title")),subtitle:String(fd.get("subtitle")),status:kind==="announcement"?"published":"open",actor:person.name,meta:{category:fd.get("category")||"Campus"}};
+    const r=await fetch("/api/campus",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    if(r.ok){setModal(null);flash(`${kind} created`);await load()} else flash("Please complete all fields");
+  }
+  const byKind=(kind:string)=>records.filter(r=>r.kind===kind && (!search||`${r.title} ${r.subtitle}`.toLowerCase().includes(search.toLowerCase())));
+  const canCreate=(kind:string)=>role==="Admin"||(kind==="assignment"&&role==="Faculty")||(kind==="event"&&role==="Coordinator")||(kind==="announcement"&&["Faculty","Coordinator"].includes(role));
 
-  return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">C</span><span>Campus<span>One</span></span></div>
-        <nav aria-label="Main navigation">
-          <p className="nav-label">WORKSPACE</p>
-          {nav.map((item, i) => <button key={item} className={active === item ? "nav-item active" : "nav-item"} onClick={() => setActive(item)}><span className="nav-icon">{["⌂", "✓", "▤", "◇", "↗"][i]}</span>{item}{item === "Assignments" && <b>3</b>}</button>)}
-          <p className="nav-label second">CAMPUS</p>
-          {[["◎", "Clubs"], ["▱", "Calendar"], ["♧", "Messages"]].map(([icon, item]) => <button key={item} className="nav-item" onClick={() => notify(`${item} module opened`)}><span className="nav-icon">{icon}</span>{item}</button>)}
-        </nav>
-        <div className="help-card"><span>?</span><strong>Need a hand?</strong><p>Reach the campus help desk anytime.</p><button onClick={() => notify("Support request started")}>Get support</button></div>
-        <button className="profile-mini" onClick={() => notify("Profile opened")}><span className="avatar">{person.name.split(" ").map(x => x[0]).slice(0,2).join("")}</span><span><strong>{person.name}</strong><small>{role}</small></span><span className="dots">•••</span></button>
-      </aside>
+  return <main className={dark?"app-shell dark":"app-shell"}>
+    <aside className="sidebar">
+      <button className="brand" onClick={()=>setActive("Overview")}><span className="brand-mark">C</span><span>Campus<b>One</b></span></button>
+      <nav><p className="nav-label">CAMPUS WORKSPACE</p>{modules.map(([name,icon])=><button key={name} className={`nav-item ${active===name?"active":""} ${name==="Admin"&&role!=="Admin"?"role-hidden":""}`} onClick={()=>setActive(name)}><span className="nav-icon">{icon}</span>{name}{name==="Assignments"&&<b>{byKind("assignment").filter(x=>x.status==="pending").length}</b>}</button>)}</nav>
+      <div className="help-card"><span>?</span><strong>Campus help desk</strong><p>Questions or technical trouble? We usually reply in under 5 minutes.</p><button onClick={()=>{setActive("Messages");flash("Help desk conversation opened")}}>Contact support →</button></div>
+      <button className="profile-mini" onClick={()=>setModal("profile")}><span className="avatar">{person.initials}</span><span><strong>{person.name}</strong><small>{role}</small></span><span className="dots">•••</span></button>
+    </aside>
 
-      <section className="workspace">
-        <header className="topbar">
-          <button className="mobile-logo" aria-label="Open navigation">C</button>
-          <label className="search"><span>⌕</span><input aria-label="Search campus" placeholder="Search anything..."/><kbd>⌘ K</kbd></label>
-          <div className="top-actions">
-            <select aria-label="Preview role" value={role} onChange={(e) => setRole(e.target.value)}>{Object.keys(roleCopy).map(r => <option key={r}>{r}</option>)}</select>
-            <button className="icon-btn" aria-label="Messages" onClick={() => notify("No unread messages")}>◌</button>
-            <button className="icon-btn notification" aria-label="Notifications" onClick={() => setNoticeOpen(!noticeOpen)}>♢<i /></button>
-            <span className="top-avatar">{person.name.split(" ").map(x => x[0]).slice(0,2).join("")}</span>
-          </div>
-          {noticeOpen && <div className="notice-pop"><div><strong>Notifications</strong><button onClick={() => setNoticeOpen(false)}>×</button></div><p><b>Assignment due today</b><span>Neural Networks · 11:59 PM</span></p><p><b>Attendance marked</b><span>Computer Networks · Present</span></p><p><b>Event reminder</b><span>DevFusion starts in 3 days</span></p></div>}
-        </header>
-
-        <div className="content">
-          <div className="welcome-row"><div><p className="eyebrow">MONDAY, 9 AUGUST</p><h1>{greeting}, {person.name.split(" ")[0]} <span>👋</span></h1><p>{role === "Student" ? "Here’s what’s happening with your campus life today." : `You’re viewing the ${role.toLowerCase()} workspace.`}</p></div><button className="primary" onClick={() => notify(role === "Student" ? "Quick actions opened" : "Create menu opened")}>＋ {role === "Student" ? "Quick action" : "Create new"}</button></div>
-
-          <div className="stat-grid">
-            <article className="stat-card attendance"><div className="stat-head"><span className="tile-icon">✓</span><span className="trend up">↗ 2.4%</span></div><p>Overall attendance</p><h2>{role === "Student" ? "86.4%" : "91.2%"}</h2><div className="progress"><i style={{width: role === "Student" ? "86.4%" : "91.2%"}} /></div><small>Minimum required: 75%</small></article>
-            <article className="stat-card"><div className="stat-head"><span className="tile-icon purple">▤</span><span className="muted">This week</span></div><p>{role === "Student" ? "Pending assignments" : "Open submissions"}</p><h2>{role === "Student" ? "3" : "28"}</h2><small><b className="red">1 due today</b> · 2 upcoming</small></article>
-            <article className="stat-card"><div className="stat-head"><span className="tile-icon orange">◇</span><span className="muted">August</span></div><p>Upcoming events</p><h2>6</h2><small><b className="blue">2 registered</b> · 4 discover</small></article>
-            <article className="stat-card"><div className="stat-head"><span className="tile-icon green">↗</span><span className="trend up">+8 new</span></div><p>{role === "Student" ? "Placement opportunities" : "Active students"}</p><h2>{role === "Student" ? "14" : "1,284"}</h2><small>{role === "Student" ? "Based on your profile" : "Across 8 departments"}</small></article>
-          </div>
-
-          <div className="main-grid">
-            <section className="panel schedule-panel"><div className="panel-title"><div><h3>Today’s schedule</h3><p>Monday, 9 August</p></div><button onClick={() => notify("Calendar opened")}>View calendar →</button></div>
-              <div className="timeline">
-                {[["09:00", "10:00", "Machine Learning", "Dr. Maya Kapoor · Lab 302", "blue"], ["11:00", "12:00", "Computer Networks", "Prof. Arjun Nair · Room 214", "purple"], ["14:30", "15:30", "Database Systems", "Dr. Nisha Verma · Room 108", "orange"]].map(([from,to,title,meta,color]) => <div className="class-row" key={title}><div className="time"><strong>{from}</strong><span>{to}</span></div><i className={color}/><div className="class-info"><strong>{title}</strong><span>{meta}</span></div><button aria-label={`Options for ${title}`} onClick={() => notify(`${title} details opened`)}>•••</button></div>)}
-              </div>
-              <div className="next-class"><span>●</span><div><small>NEXT CLASS IN 24 MIN</small><strong>Machine Learning · Lab 302</strong></div><button onClick={() => notify("Classroom directions opened")}>View details</button></div>
-            </section>
-
-            <section className="panel assignments-panel"><div className="panel-title"><div><h3>Assignments</h3><p>Keep up the momentum</p></div><button onClick={() => setActive("Assignments")}>View all →</button></div>
-              <div className="assignment-list">{assignments.map((a, i) => <button className="assignment" key={a.title} onClick={() => notify(`${a.title} opened`)}><span className={`doc-icon d${i}`}>▤</span><span><strong>{a.title}</strong><small>{a.subject}</small></span><span className={a.tone === "urgent" ? "due urgent" : "due"}>{a.due}</span></button>)}</div>
-              <div className="completion"><div><span>Weekly completion</span><strong>7 of 10</strong></div><div className="progress"><i style={{width:"70%"}} /></div></div>
-            </section>
-
-            <section className="panel performance-panel"><div className="panel-title"><div><h3>Attendance overview</h3><p>August performance</p></div><button onClick={() => notify("Attendance report opened")}>Full report →</button></div>
-              <div className="chart-area"><div className="donut"><div><strong>86.4%</strong><span>Present</span></div></div><div className="legend"><p><i className="present"/>Present <b>38</b></p><p><i className="absent"/>Absent <b>4</b></p><p><i className="leave"/>On leave <b>2</b></p></div></div>
-              <div className="subject-bars">{[["Machine Learning",92], ["Database Systems",88], ["Computer Networks",79]].map(([name,n]) => <div key={name as string}><span>{name}</span><b>{n}%</b><div className="progress"><i style={{width:`${n}%`}} /></div></div>)}</div>
-            </section>
-
-            <section className="panel events-panel"><div className="panel-title"><div><h3>Upcoming events</h3><p>Discover what’s happening</p></div><button onClick={() => setActive("Events")}>Explore all →</button></div>
-              <div className="event-list">{events.map((e) => <div className="event" key={e.title}><div className="event-date"><strong>{e.day}</strong><span>{e.mon}</span></div><div className="event-copy"><span>{e.tag}</span><strong>{e.title}</strong><small>{e.meta}</small></div><button className={registered.includes(e.title) ? "registered" : ""} onClick={() => toggleEvent(e.title)}>{registered.includes(e.title) ? "✓ Registered" : "Register"}</button></div>)}</div>
-            </section>
-          </div>
-
-          <footer><span>CampusOne · Northbridge Institute of Technology</span><span>System status: <b>● All services operational</b></span></footer>
-        </div>
-      </section>
-      {toast && <div className="toast"><span>✓</span>{toast}</div>}
-      <nav className="mobile-nav">{nav.slice(0,4).map((item,i) => <button key={item} className={active===item?"active":""} onClick={() => setActive(item)}><span>{["⌂","✓","▤","◇"][i]}</span>{item}</button>)}</nav>
-    </main>
-  );
+    <section className="workspace">
+      <header className="topbar"><button className="mobile-logo" onClick={()=>flash("Use bottom navigation")}>C</button><label className="search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campus records..."/><kbd>⌘ K</kbd></label><div className="top-actions"><select value={role} onChange={e=>{setRole(e.target.value as Role);setActive("Overview");flash(`Switched to ${e.target.value} view`)}}>{Object.keys(people).map(r=><option key={r}>{r}</option>)}</select><button className="icon-btn" onClick={()=>setDark(!dark)} aria-label="Toggle theme">{dark?"☀":"◐"}</button><button className="icon-btn notification" onClick={()=>setActive("Messages")}>♢<i/></button><span className="top-avatar">{person.initials}</span></div></header>
+      <div className="content">
+        {loading?<Loading/>:<>
+          <div className="module-header"><div><p className="eyebrow">NORTHBRIDGE INSTITUTE OF TECHNOLOGY</p><h1>{active}</h1><p>{subtitle(active,role)}</p></div>{canCreate(kindFor(active))&&<button className="primary" onClick={()=>setModal(kindFor(active))}>＋ Create {singular(active)}</button>}</div>
+          {active==="Overview"&&<Overview role={role} records={records} activity={activity} setActive={setActive}/>} 
+          {active==="Attendance"&&<AttendanceView role={role} flash={flash}/>} 
+          {active==="Assignments"&&<RecordView title="Course assignments" items={byKind("assignment")} empty="No assignments found" render={(x)=><AssignmentCard key={x.id} item={x} role={role} action={changeStatus}/>}/>} 
+          {active==="Events"&&<RecordView title="Campus events" items={byKind("event")} empty="No events found" render={(x)=><EventCard key={x.id} item={x} role={role} action={changeStatus}/>}/>} 
+          {active==="Placements"&&<Placements items={byKind("placement")} role={role} action={changeStatus}/>} 
+          {active==="Clubs"&&<RecordView title="Student clubs" items={byKind("club")} empty="No clubs found" render={(x)=><ClubCard key={x.id} item={x} action={changeStatus}/>}/>} 
+          {active==="Calendar"&&<CalendarView records={records}/>} 
+          {active==="Messages"&&<Messages items={byKind("message")} role={role} create={async(text)=>{const r=await fetch("/api/campus",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:"message",title:person.name,subtitle:text,status:"sent",actor:person.name})});if(r.ok){flash("Message sent");await load()}}}/>} 
+          {active==="Admin"&&<AdminView records={records} activity={activity} setModal={setModal}/>} 
+        </>}
+        <footer><span>CampusOne · Northbridge Institute of Technology</span><span>System status: <b>● All services operational</b></span></footer>
+      </div>
+    </section>
+    <nav className="mobile-nav">{modules.slice(0,5).map(([name,icon])=><button key={name} className={active===name?"active":""} onClick={()=>setActive(name)}><span>{icon}</span>{name}</button>)}</nav>
+    {modal&&<Modal type={modal} close={()=>setModal(null)} person={person} submit={createRecord}/>} 
+    {toast&&<div className="toast"><span>✓</span>{toast}</div>}
+  </main>
 }
+
+function Overview({role,records,activity,setActive}:{role:Role;records:RecordItem[];activity:Activity[];setActive:(x:string)=>void}){
+ const assignments=records.filter(x=>x.kind==="assignment"),events=records.filter(x=>x.kind==="event"),placements=records.filter(x=>x.kind==="placement");
+ return <><div className="welcome-banner"><div><span>MONDAY, 10 AUGUST</span><h2>Good morning, {people[role].name.split(" ")[0]} 👋</h2><p>{role==="Student"?"You have 3 classes and 1 assignment due today.":`Manage today’s ${role.toLowerCase()} responsibilities from one place.`}</p></div><div className="banner-art"><i/><i/><i/></div></div>
+ <div className="stat-grid"><Stat icon="✓" color="blue" label="Overall attendance" value={role==="Student"?"86.4%":"91.2%"} detail="↑ 2.4% this month"/><Stat icon="▤" color="purple" label={role==="Student"?"Pending assignments":"Open submissions"} value={String(assignments.filter(x=>x.status==="pending").length||3)} detail="1 due today"/><Stat icon="◇" color="orange" label="Upcoming events" value={String(events.length)} detail={`${events.filter(x=>x.status==="registered").length} registered`}/><Stat icon="↗" color="green" label="Placement opportunities" value={String(placements.length+12)} detail="8 new this week"/></div>
+ <div className="main-grid"><section className="panel schedule-panel"><PanelTitle title="Today’s schedule" sub="Monday, 10 August" action="View calendar →" click={()=>setActive("Calendar")}/><div className="timeline">{schedule.map(s=><div className="class-row" key={s.title}><div className="time"><strong>{s.time}</strong><span>{s.end}</span></div><i className={s.color}/><div className="class-info"><strong>{s.title}</strong><span>{s.faculty} · {s.place}</span></div><span className="live-pill">{s.time==="09:00"?"NEXT":""}</span></div>)}</div></section>
+ <section className="panel"><PanelTitle title="Pending work" sub="Stay ahead of deadlines" action="View all →" click={()=>setActive("Assignments")}/>{assignments.slice(0,3).map((a,i)=><div className="mini-record" key={a.id}><span className={`doc-icon d${i}`}>▤</span><div><strong>{a.title}</strong><small>{a.subtitle}</small></div><b className={a.status}>{a.status}</b></div>)}</section>
+ <section className="panel"><PanelTitle title="Attendance overview" sub="August performance" action="Full report →" click={()=>setActive("Attendance")}/><div className="chart-area"><div className="donut"><div><strong>86.4%</strong><span>Present</span></div></div><div className="legend"><p><i className="present"/>Present <b>38</b></p><p><i className="absent"/>Absent <b>4</b></p><p><i className="leave"/>On leave <b>2</b></p></div></div></section>
+ <section className="panel"><PanelTitle title="Recent activity" sub="Live campus updates" action="" click={()=>{}}/><div className="activity-list">{(activity.length?activity:[{id:1,message:"Attendance marked for Machine Learning",actor:"Dr. Maya Kapoor",created_at:Date.now()}]).slice(0,4).map(a=><div key={a.id}><span>●</span><p><strong>{a.message}</strong><small>{a.actor} · recently</small></p></div>)}</div></section></div></>
+}
+function AttendanceView({role,flash}:{role:Role;flash:(x:string)=>void}){const [marked,setMarked]=useState<string[]>([]);return <div className="two-column"><section className="panel wide"><PanelTitle title="Subject-wise attendance" sub="Academic year 2026–27" action="Download report" click={()=>flash("Attendance report prepared")}/><div className="data-table"><div className="table-head"><span>Subject</span><span>Classes</span><span>Attendance</span><span>Status</span></div>{attendance.map(a=><div className="table-row" key={a.code}><span><strong>{a.subject}</strong><small>{a.code}</small></span><span>{a.present} / {a.total}</span><span><div className="inline-progress"><i style={{width:`${a.pct}%`}}/></div><b>{a.pct}%</b></span><span className={a.pct>=75?"status-good":"status-bad"}>{a.pct>=75?"On track":"At risk"}</span></div>)}</div></section><section className="panel"><PanelTitle title={role==="Faculty"?"Take attendance":"Monthly summary"} sub={role==="Faculty"?"Machine Learning · Lab 302":"Your attendance trend"} action="" click={()=>{}}/>{role==="Faculty"?<div className="roster">{["Aarav Mehta","Diya Singh","Kabir Khan","Meera Joshi","Vivaan Shah"].map(n=><label key={n}><span className="avatar">{n.split(" ").map(x=>x[0]).join("")}</span><strong>{n}</strong><input type="checkbox" checked={marked.includes(n)} onChange={()=>setMarked(v=>v.includes(n)?v.filter(x=>x!==n):[...v,n])}/></label>)}<button className="primary full" onClick={()=>flash(`Attendance saved for ${marked.length} students`)}>Save attendance</button></div>:<div className="month-grid">{Array.from({length:31},(_,i)=><span className={i%7===5||i%11===0?"absent-day":"present-day"} key={i}>{i+1}</span>)}</div>}</section></div>}
+function RecordView({title,items,empty,render}:{title:string;items:RecordItem[];empty:string;render:(x:RecordItem)=>React.ReactNode}){return <section className="panel module-panel"><PanelTitle title={title} sub={`${items.length} records`} action="" click={()=>{}}/><div className="card-list">{items.length?items.map(render):<Empty text={empty}/>}</div></section>}
+function AssignmentCard({item,role,action}:{item:RecordItem;role:Role;action:(x:RecordItem,s:string)=>void}){return <article className="record-card"><span className="large-icon purple">▤</span><div className="record-copy"><span className="category">ASSIGNMENT</span><h3>{item.title}</h3><p>{item.subtitle}</p><div className="meta-row"><span>◷ {String(item.meta.due||"Upcoming")}</span><span>★ {String(item.meta.points||100)} points</span></div></div><div className="record-actions"><span className={`state ${item.status}`}>{item.status}</span>{role==="Student"&&<button className="primary" onClick={()=>action(item,"submitted")}>{item.status==="submitted"?"Resubmit":"Submit work"}</button>}{role==="Faculty"&&<button className="outline" onClick={()=>action(item,"graded")}>Review</button>}</div></article>}
+function EventCard({item,role,action}:{item:RecordItem;role:Role;action:(x:RecordItem,s:string)=>void}){return <article className="record-card"><div className="date-block"><strong>{item.subtitle.slice(0,2)}</strong><span>AUG</span></div><div className="record-copy"><span className="category">{String(item.meta.category||"CAMPUS EVENT")}</span><h3>{item.title}</h3><p>{item.subtitle}</p><div className="meta-row"><span>◎ {String(item.meta.seats||80)} seats</span><span>Free entry</span></div></div><div className="record-actions"><span className={`state ${item.status}`}>{item.status}</span>{role==="Student"&&<button className={item.status==="registered"?"outline":"primary"} onClick={()=>action(item,item.status==="registered"?"open":"registered")}>{item.status==="registered"?"Cancel":"Register"}</button>}</div></article>}
+function ClubCard({item,action}:{item:RecordItem;action:(x:RecordItem,s:string)=>void}){return <article className="record-card"><span className="large-icon blue">◎</span><div className="record-copy"><span className="category">{String(item.meta.category||"STUDENT CLUB")}</span><h3>{item.title}</h3><p>{item.subtitle}</p></div><div className="record-actions"><button className={item.status==="joined"?"outline":"primary"} onClick={()=>action(item,item.status==="joined"?"open":"joined")}>{item.status==="joined"?"✓ Joined":"Join club"}</button></div></article>}
+function Placements({items,role,action}:{items:RecordItem[];role:Role;action:(x:RecordItem,s:string)=>void}){return <><div className="placement-hero"><div><span>CAREER SERVICES</span><h2>Your next opportunity starts here.</h2><p>Curated roles matched to your skills and academic profile.</p></div><div><strong>87%</strong><span>Profile strength</span></div></div><RecordView title="Recommended opportunities" items={items} empty="No roles match your search" render={x=><article className="record-card" key={x.id}><span className="company-logo">{x.title[0]}</span><div className="record-copy"><span className="category">RECOMMENDED</span><h3>{x.title}</h3><p>{x.subtitle}</p><div className="skill-row">{String(x.meta.skills||"").split(", ").map(s=><span key={s}>{s}</span>)}</div></div><div className="record-actions"><span className={`state ${x.status}`}>{x.status}</span>{role==="Student"&&<button className="primary" onClick={()=>action(x,"applied")}>{x.status==="applied"?"Application sent":"Apply now"}</button>}</div></article>}/></>}
+function CalendarView({records}:{records:RecordItem[]}){const days=Array.from({length:35},(_,i)=>i-2);return <div className="two-column calendar-layout"><section className="panel wide"><PanelTitle title="August 2026" sub="Academic calendar" action="Today" click={()=>{}}/><div className="calendar"><div className="weekdays">{"MON TUE WED THU FRI SAT SUN".split(" ").map(x=><b key={x}>{x}</b>)}</div><div className="days">{days.map((d,i)=><div className={d===10?"today":d<1?"muted-day":""} key={i}><span>{d<1?30+d:d}</span>{d===10&&<i>ML Lab</i>}{d===12&&<i className="event-dot">DevFusion</i>}{d===16&&<i className="event-dot">AI Seminar</i>}</div>)}</div></div></section><section className="panel"><PanelTitle title="Upcoming" sub="Next 7 days" action="" click={()=>{}}/>{records.filter(x=>x.kind==="event"||x.kind==="assignment").slice(0,5).map(x=><div className="agenda" key={x.id}><span className={x.kind}>{x.kind==="event"?"◇":"▤"}</span><div><strong>{x.title}</strong><small>{x.subtitle}</small></div></div>)}</section></div>}
+function Messages({items,role,create}:{items:RecordItem[];role:Role;create:(x:string)=>void}){const [text,setText]=useState("");return <div className="messages-layout"><aside className="panel conversations"><div className="conversation-search">⌕ Search conversations</div>{items.map((x,i)=><button key={x.id} className={i===0?"selected":""}><span className="avatar">{x.title.split(" ").map(y=>y[0]).slice(0,2).join("")}</span><span><strong>{x.title}</strong><small>{x.subtitle}</small></span></button>)}</aside><section className="panel chat"><div className="chat-head"><span className="avatar">MK</span><div><strong>Dr. Maya Kapoor</strong><small>● Online · Machine Learning</small></div></div><div className="chat-body"><div className="bubble theirs">Hi {people[role].name.split(" ")[0]}, remember to bring your laptop to today’s lab.<small>9:12 AM</small></div><div className="bubble mine">Sure, thank you for the reminder!<small>9:18 AM</small></div>{items.filter(x=>x.status==="sent").map(x=><div className="bubble mine" key={x.id}>{x.subtitle}<small>Just now</small></div>)}</div><form className="chat-input" onSubmit={e=>{e.preventDefault();if(text.trim()){create(text);setText("")}}}><button type="button">＋</button><input value={text} onChange={e=>setText(e.target.value)} placeholder="Write a message..."/><button type="submit">Send</button></form></section></div>}
+function AdminView({records,activity,setModal}:{records:RecordItem[];activity:Activity[];setModal:(x:string)=>void}){return <><div className="stat-grid"><Stat icon="♙" color="blue" label="Total students" value="1,284" detail="+46 this semester"/><Stat icon="♙" color="purple" label="Faculty members" value="86" detail="8 departments"/><Stat icon="◇" color="orange" label="Active records" value={String(records.length)} detail="Across all modules"/><Stat icon="✓" color="green" label="System health" value="99.9%" detail="All services online"/></div><div className="main-grid"><section className="panel"><PanelTitle title="Quick administration" sub="Manage campus operations" action="" click={()=>{}}/><div className="admin-actions">{[["announcement","Publish announcement","Notify the entire campus"],["event","Create campus event","Schedule and manage seats"],["assignment","Add assignment","Create coursework"],["profile","Manage user roles","Students, faculty and staff"]].map(([type,title,sub])=><button key={type} onClick={()=>setModal(type)}><span>＋</span><div><strong>{title}</strong><small>{sub}</small></div><b>→</b></button>)}</div></section><section className="panel"><PanelTitle title="Audit activity" sub="Latest protected actions" action="" click={()=>{}}/><div className="activity-list">{activity.slice(0,8).map(a=><div key={a.id}><span>●</span><p><strong>{a.message}</strong><small>{a.actor}</small></p></div>)}</div></section></div></>}
+function Modal({type,close,person,submit}:{type:string;close:()=>void;person:{name:string;sub:string;initials:string};submit:(e:FormEvent<HTMLFormElement>)=>void}){if(type==="profile")return <div className="modal-backdrop" onMouseDown={close}><div className="modal profile-modal" onMouseDown={e=>e.stopPropagation()}><button className="modal-close" onClick={close}>×</button><span className="profile-avatar">{person.initials}</span><h2>{person.name}</h2><p>{person.sub}</p><div className="profile-fields"><label>Email<input value={`${person.name.toLowerCase().replaceAll(" ".charAt(0),".")}@northbridge.edu`} readOnly/></label><label>Department<input value="Computer Science & Engineering" readOnly/></label></div><button className="primary full" onClick={close}>Save profile</button></div></div>;
+ return <div className="modal-backdrop" onMouseDown={close}><form className="modal" onSubmit={submit} onMouseDown={e=>e.stopPropagation()}><button type="button" className="modal-close" onClick={close}>×</button><span className="form-icon">＋</span><h2>Create {type}</h2><p>Add a new {type} to the campus workspace.</p><input type="hidden" name="kind" value={type}/><label>Title<input name="title" required placeholder={`Enter ${type} title`}/></label><label>Description / details<textarea name="subtitle" required placeholder="Add date, venue, course or useful details"/></label><label>Category<select name="category"><option>Campus</option><option>Academic</option><option>Technology</option><option>Important</option></select></label><button className="primary full" type="submit">Publish {type}</button></form></div>}
+function Stat({icon,color,label,value,detail}:{icon:string;color:string;label:string;value:string;detail:string}){return <article className="stat-card"><div className="stat-head"><span className={`tile-icon ${color}`}>{icon}</span><span className="trend up">↗ live</span></div><p>{label}</p><h2>{value}</h2><small>{detail}</small></article>}
+function PanelTitle({title,sub,action,click}:{title:string;sub:string;action:string;click:()=>void}){return <div className="panel-title"><div><h3>{title}</h3><p>{sub}</p></div>{action&&<button onClick={click}>{action}</button>}</div>}
+function Empty({text}:{text:string}){return <div className="empty"><span>⌕</span><h3>{text}</h3><p>Try changing your search or create a new record.</p></div>}
+function Loading(){return <div className="loading"><span/><span/><span/><span/></div>}
+function kindFor(active:string){return ({Assignments:"assignment",Events:"event",Admin:"announcement"} as Record<string,string>)[active]||"announcement"}
+function singular(active:string){return ({Assignments:"assignment",Events:"event",Admin:"announcement"} as Record<string,string>)[active]||"record"}
+function subtitle(active:string,role:Role){const map:Record<string,string>={Overview:`Welcome back, ${people[role].name.split(" ")[0]}. Here’s your campus at a glance.`,Attendance:"Track presence, subject performance and monthly trends.",Assignments:"Create, submit and review academic coursework.",Events:"Discover and manage everything happening on campus.",Placements:"Explore roles, check eligibility and track applications.",Clubs:"Find your community and grow beyond the classroom.",Calendar:"Classes, deadlines and events in one academic calendar.",Messages:"Secure conversations with faculty and campus teams.",Admin:"Manage people, content, permissions and system activity."};return map[active]}
