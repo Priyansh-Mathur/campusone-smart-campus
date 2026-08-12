@@ -392,7 +392,12 @@ export default function Home() {
                     <button
                       key={r.id}
                       onClick={() => {
-                        setActive(moduleForKind(r.kind));
+                        const destination = moduleForKind(r.kind);
+                        setActive(
+                          destination === "Admin" && role !== "Admin"
+                            ? "Overview"
+                            : destination,
+                        );
                         setSearch("");
                       }}
                     >
@@ -472,7 +477,7 @@ export default function Home() {
                 <div>
                   <p className="eyebrow">NORTHBRIDGE INSTITUTE OF TECHNOLOGY</p>
                   <h1>{active}</h1>
-                  <p>{subtitle(active, role)}</p>
+                  <p>{subtitle(active, role, person.name)}</p>
                 </div>
                 {canCreate(kindFor(active)) && (
                   <button
@@ -486,6 +491,7 @@ export default function Home() {
               {active === "Overview" && (
                 <Overview
                   role={role}
+                  name={person.name}
                   records={records}
                   activity={activity}
                   setActive={setActive}
@@ -790,11 +796,13 @@ export default function Home() {
 
 function Overview({
   role,
+  name,
   records,
   activity,
   setActive,
 }: {
   role: Role;
+  name: string;
   records: RecordItem[];
   activity: Activity[];
   setActive: (x: string) => void;
@@ -807,7 +815,7 @@ function Overview({
       <div className="welcome-banner">
         <div>
           <span>MONDAY, 10 AUGUST</span>
-          <h2>Good morning, {people[role].name.split(" ")[0]} 👋</h2>
+          <h2>Good morning, {name.split(" ")[0]} 👋</h2>
           <p>
             {role === "Student"
               ? "You have 3 classes and 1 assignment due today."
@@ -2289,9 +2297,9 @@ function iconForKind(kind: string) {
     )[kind] || "•"
   );
 }
-function subtitle(active: string, role: Role) {
+function subtitle(active: string, role: Role, name: string) {
   const map: Record<string, string> = {
-    Overview: `Welcome back, ${people[role].name.split(" ")[0]}. Here’s your campus at a glance.`,
+    Overview: `Welcome back, ${name.split(" ")[0]}. Here’s your campus at a glance.`,
     Attendance: "Track presence, subject performance and monthly trends.",
     Assignments: "Create, submit and review academic coursework.",
     Events: "Discover and manage everything happening on campus.",
