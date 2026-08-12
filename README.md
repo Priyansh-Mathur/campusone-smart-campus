@@ -1,95 +1,92 @@
 # CampusOne
 
-CampusOne is a production-deployed Smart Campus Management Platform built for DevFusion 4.0 Problem Statement 1. It brings student, faculty, coordinator and administrator workflows into one responsive campus workspace.
+CampusOne is a full-stack Smart Campus Management Platform built for DevFusion 4.0 Problem Statement 1. It provides secure, role-based student, faculty, coordinator and administrator workflows in one responsive application.
 
 ## Live application
 
 https://campusone-smart-campus.panditanshul6266.chatgpt.site
 
-## Working modules
+## Demo accounts
 
-- Role-aware dashboards for Student, Faculty, Coordinator and Admin
-- Subject-wise attendance analytics and faculty attendance marking
-- Assignment creation, submission, review and status tracking
-- Campus event creation, registration and cancellation
-- Placement discovery, skill matching and application tracking
-- Student club discovery and membership controls
-- Academic calendar with classes, deadlines and events
-- Persistent faculty/student messaging
-- Admin announcements, quick controls and audit activity
-- Global search, dark theme and responsive mobile navigation
+All demo accounts use password `Campus@123`.
 
-All write operations use a Cloudflare D1 database and survive page refreshes and new sessions.
+| Role | Email | Main capabilities |
+|---|---|---|
+| Student | `student@campusone.dev` | Submit assignments, register for events, apply for placements, join clubs |
+| Faculty | `faculty@campusone.dev` | Save attendance sessions, create assignments, publish marks and feedback |
+| Coordinator | `coordinator@campusone.dev` | Create events, clubs and announcements |
+| Admin | `admin@campusone.dev` | Create role-bound users, manage campus content, permissions and audit history |
 
-## Tech stack
+## Implemented product areas
 
-- React 19 + TypeScript
-- Vinext / Next.js-compatible App Router
-- Tailwind CSS 4 and custom responsive CSS
-- Cloudflare Workers
-- Cloudflare D1 / SQLite
-- Drizzle ORM and migrations
-- Sites production hosting
+- Marketing landing page with feature, impact, testimonial, FAQ and responsive sections
+- Email/password sign-up, demo email verification, forgot/reset password, logout and protected routes
+- Configuration-ready Google OAuth 2.0 with state validation
+- Server-derived RBAC; the browser cannot switch or claim its own role
+- Role-specific dashboards, global search, notifications, dark theme and mobile navigation
+- Persistent user profiles, preferences, password change and account deletion controls
+- Attendance analytics, downloadable CSV reports and persistent faculty sessions
+- Assignment PDF/ZIP or GitHub submissions, faculty grading and feedback
+- Event registration/cancellation plus a real scannable QR pass
+- Placement applications with validated PDF/DOC/DOCX resume uploads
+- Clubs, academic calendar and persistent messaging
+- Admin user/content management, campus structures, permissions and immutable action history
+- Validated R2 uploads (10 MB maximum), D1 persistence, rate limiting and same-origin write protection
+
+## Stack
+
+- React 19, TypeScript and Vinext App Router
+- Cloudflare Workers, D1 and R2
+- Drizzle ORM and generated SQL migrations
+- bcrypt password hashing and opaque HttpOnly session cookies
+- Sites hosting
 
 ## Run locally
 
-Requirements: Node.js 22.13 or newer.
+Node.js 22.13 or newer is required.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Run a production build:
+Quality checks:
 
 ```bash
-npm run build
+npm run lint
+npm test
+npm audit --omit=dev
 ```
 
-Generate migrations after changing `db/schema.ts`:
+Generate a migration after editing `db/schema.ts`:
 
 ```bash
 npm run db:generate
 ```
 
-## Demo roles
+## Google OAuth configuration
 
-Use the role selector in the top navigation. No password is required for the public hackathon demo.
-
-| Role | Demo user | Capabilities |
-|---|---|---|
-| Student | Aarav Mehta | Submit assignments, register events, apply for placements, join clubs |
-| Faculty | Dr. Maya Kapoor | Take attendance, create assignments, review work |
-| Coordinator | Riya Sharma | Create events and publish campus updates |
-| Admin | Vikram Rao | Manage content, view system statistics and audit activity |
-
-## Architecture
+Copy `.env.example` and provide `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the public `APP_ORIGIN`. Register this redirect URI with Google:
 
 ```text
-Browser UI (React)
-      |
-      v
-/api/campus (Cloudflare Worker route)
-      |
-      v
-Cloudflare D1 (records + activity audit log)
+https://YOUR-DOMAIN/api/auth/google/callback
 ```
 
-The API uses prepared statements, server-side validation and an indexed `kind` column for module filtering. `records` stores typed campus entities; `activity` records protected write actions for the admin audit view.
+The public demo intentionally leaves institutional Google credentials unset; all email/password and demo-role flows remain available.
 
-## Key source locations
+## Architecture and API
 
-- `app/page.tsx` — application modules and interactive workflows
-- `app/globals.css` — responsive design system and dark theme
-- `app/api/campus/route.ts` — persistent CRUD API and seed data
-- `db/schema.ts` — relational schema
-- `drizzle/` — generated SQL migrations
-- `.openai/hosting.json` — Sites and D1 configuration
+- [Architecture and ER model](docs/architecture.md)
+- [OpenAPI specification](docs/openapi.yaml)
+- [PS-1 compliance report](docs/ps1-compliance.md)
+- [Generated migrations](drizzle)
 
-## Security notes
+Campus workflow entities use a typed-record model while users, sessions, profiles, rate limits and object files use dedicated stores. Authorization is enforced in API routes with server-resolved session roles.
 
-This repository is a public hackathon demonstration. Its role switcher demonstrates authorization-aware UI flows; a college deployment should connect roles to verified institutional accounts and enforce every permission server-side. API inputs are parameterized and database access uses prepared statements.
+## Deploy
+
+The repository contains `.openai/hosting.json`; Sites provisions the `DB` D1 binding and `FILES` R2 binding. Deploy through Sites after setting any optional OAuth environment variables. Never commit deployment secrets.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

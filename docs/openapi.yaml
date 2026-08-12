@@ -1,0 +1,84 @@
+openapi: 3.1.0
+info:
+  title: CampusOne API
+  version: 1.0.0
+  description: Authentication, campus workflow and secure file APIs for CampusOne.
+servers:
+  - url: https://campusone-smart-campus.panditanshul6266.chatgpt.site
+paths:
+  /api/auth:
+    get:
+      summary: Return the authenticated user
+      responses:
+        '200': { description: Active session }
+        '401': { description: Authentication required }
+    post:
+      summary: Authenticate or manage the signed-in profile, preferences and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [login, signup, verify, forgot, reset, profile, preferences, password, delete] }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name: { type: string }
+                code: { type: string }
+      responses:
+        '200': { description: Authentication action completed }
+        '400': { description: Validation error }
+        '429': { description: Rate limited }
+    delete:
+      summary: Invalidate the current session
+      responses:
+        '200': { description: Signed out }
+  /api/auth/google:
+    get:
+      summary: Start Google OAuth with a state cookie
+      responses:
+        '302': { description: Redirect to Google or back with a configuration error }
+  /api/auth/google/callback:
+    get:
+      summary: Validate OAuth state, exchange the code and create a session
+      responses:
+        '302': { description: Redirect to the authenticated application }
+  /api/campus:
+    get:
+      summary: List campus records and recent activity
+      responses:
+        '200': { description: Campus workspace data }
+        '401': { description: Authentication required }
+    post:
+      summary: Create a role-authorized campus record
+      responses:
+        '201': { description: Record created }
+        '403': { description: Role is not authorized }
+    patch:
+      summary: Update workflow status with server-side role checks
+      responses:
+        '200': { description: Record updated }
+        '403': { description: Role is not authorized }
+    delete:
+      summary: Delete a campus record (Admin only)
+      responses:
+        '200': { description: Record deleted }
+        '403': { description: Admin access required }
+  /api/uploads:
+    post:
+      summary: Upload a validated assignment, resume, material or profile file
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, purpose]
+              properties:
+                file: { type: string, format: binary }
+                purpose: { type: string, enum: [assignment, resume, material, profile] }
+      responses:
+        '201': { description: File stored }
+        '400': { description: Invalid file }
+        '403': { description: Access denied }
