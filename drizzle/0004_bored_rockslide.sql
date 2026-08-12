@@ -1,0 +1,1 @@
+CREATE INDEX `idx_user_record_statuses_record` ON `user_record_statuses` (`record_id`);

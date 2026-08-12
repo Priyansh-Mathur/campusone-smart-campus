@@ -18,6 +18,8 @@ flowchart LR
 erDiagram
   USERS ||--o{ SESSIONS : owns
   USERS ||--o| USER_PROFILES : configures
+  USERS ||--o{ USER_RECORD_STATUSES : owns
+  RECORDS ||--o{ USER_RECORD_STATUSES : receives
   USERS ||--o{ RECORDS : creates
   USERS ||--o{ ACTIVITY : performs
   RECORDS ||--o{ UPLOADS : references
@@ -38,6 +40,11 @@ erDiagram
     text department
     text skills
     text preferences
+  }
+  USER_RECORD_STATUSES {
+    integer user_id PK_FK
+    integer record_id PK_FK
+    text status
   }
   RECORDS {
     integer id PK
@@ -60,4 +67,4 @@ erDiagram
   }
 ```
 
-Campus entities use a typed-record model: `kind` distinguishes assignments, submissions, feedback, events, registrations, placements, applications, clubs, notifications, departments and courses. Structured relation metadata is stored as JSON while high-value cross-cutting data—users, profiles, sessions, activity logs and files—uses dedicated stores. All writes are same-origin checked and authorized from the server session.
+Campus entities use a typed-record model: `kind` distinguishes assignments, submissions, feedback, events, registrations, placements, applications, clubs, notifications, departments and courses. Per-user workflow states isolate registrations, submissions, applications, memberships and notification reads. Structured relation metadata is stored as JSON while high-value cross-cutting data—users, profiles, sessions, per-user states, activity logs and files—uses dedicated stores. All writes are same-origin checked and authorized from the server session.

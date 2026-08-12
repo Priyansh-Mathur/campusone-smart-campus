@@ -68,6 +68,8 @@ test("ships protected APIs, role policies and durable storage configuration", as
   assert.match(hosting, /"d1": "DB"/);
   assert.match(hosting, /"r2": "FILES"/);
   assert.match(schema, /userProfiles/);
+  assert.match(schema, /userRecordStatuses/);
+  assert.match(campus, /user_record_statuses/);
   assert.match(page, /QRCodeSVG/);
   for (const moduleName of [
     "Attendance",

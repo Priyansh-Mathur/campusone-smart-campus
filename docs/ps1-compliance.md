@@ -15,7 +15,7 @@ Audit date: 12 August 2026
 | Assignments | Complete | Faculty creation/review, student PDF/ZIP/GitHub submission, late/status and feedback records |
 | Events | Complete | Coordinator creation, registration/cancellation, seat metadata and scannable QR pass |
 | Placements | Complete | Eligibility/CTC/deadline presentation, validated resume upload and application state |
-| Clubs, calendar, messages, announcements and notifications | Complete | Dedicated UI modules backed by protected D1 records |
+| Clubs, calendar, messages, announcements and notifications | Complete | Dedicated UI modules backed by protected D1 records and per-user read/membership state |
 | Admin operations | Complete | User, department, course, event, assignment, placement and announcement management plus audit activity |
 | Search and analytics | Complete | Cross-module search, dashboard cards, attendance/placement/event analytics and reports |
 | Security baseline | Complete | bcrypt, prepared statements, input/length validation, upload allowlists, 10 MB limit, rate limits, RBAC, same-origin checks, secure cookies and environment-only secrets |
