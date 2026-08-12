@@ -25,6 +25,7 @@ const modules = [
   ["Attendance", "✓"],
   ["Assignments", "▤"],
   ["Events", "◇"],
+  ["Announcements", "!"],
   ["Placements", "↗"],
   ["Clubs", "◎"],
   ["Calendar", "▱"],
@@ -255,7 +256,7 @@ export default function Home() {
     Boolean(kind) &&
     (role === "Admin" ||
       (kind === "assignment" && role === "Faculty") ||
-      (kind === "event" && role === "Coordinator") ||
+      (["event", "club"].includes(kind) && role === "Coordinator") ||
       (kind === "announcement" && ["Faculty", "Coordinator"].includes(role)));
 
   async function logout() {
@@ -551,6 +552,26 @@ export default function Home() {
                       action={changeStatus}
                       open={setModal}
                     />
+                  )}
+                />
+              )}
+              {active === "Announcements" && (
+                <RecordView
+                  title="Campus announcements"
+                  items={byKind("announcement")}
+                  empty="No announcements found"
+                  render={(x) => (
+                    <article className="record-card" key={x.id}>
+                      <span className="large-icon blue">!</span>
+                      <div className="record-copy">
+                        <span className="category">
+                          {String(x.meta.category || "CAMPUS NOTICE")}
+                        </span>
+                        <h3>{x.title}</h3>
+                        <p>{x.subtitle}</p>
+                      </div>
+                      <span className={`state ${x.status}`}>{x.status}</span>
+                    </article>
                   )}
                 />
               )}
@@ -2238,6 +2259,8 @@ function kindFor(active: string) {
       {
         Assignments: "assignment",
         Events: "event",
+        Announcements: "announcement",
+        Clubs: "club",
         Admin: "announcement",
       } as Record<string, string>
     )[active] || ""
@@ -2249,6 +2272,8 @@ function singular(active: string) {
       {
         Assignments: "assignment",
         Events: "event",
+        Announcements: "announcement",
+        Clubs: "club",
         Admin: "announcement",
       } as Record<string, string>
     )[active] || "record"
@@ -2268,7 +2293,7 @@ function moduleForKind(kind: string) {
         message: "Messages",
         notification: "Overview",
         attendance: "Attendance",
-        announcement: "Admin",
+        announcement: "Announcements",
         department: "Admin",
         course: "Admin",
         user: "Admin",
@@ -2303,6 +2328,7 @@ function subtitle(active: string, role: Role, name: string) {
     Attendance: "Track presence, subject performance and monthly trends.",
     Assignments: "Create, submit and review academic coursework.",
     Events: "Discover and manage everything happening on campus.",
+    Announcements: "Read and publish official campus-wide updates.",
     Placements: "Explore roles, check eligibility and track applications.",
     Clubs: "Find your community and grow beyond the classroom.",
     Calendar: "Classes, deadlines and events in one academic calendar.",
