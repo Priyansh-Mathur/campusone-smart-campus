@@ -1638,16 +1638,8 @@ function AdminView({
   setModal: (x: string) => void;
   remove: (item: RecordItem) => void;
 }) {
-  const managed = records.filter((r) =>
-    [
-      "user",
-      "department",
-      "course",
-      "event",
-      "assignment",
-      "announcement",
-      "placement",
-    ].includes(r.kind),
+  const managed = records.filter(
+    (r) => !["notification", "message"].includes(r.kind),
   );
   return (
     <>
