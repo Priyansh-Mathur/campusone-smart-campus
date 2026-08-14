@@ -87,3 +87,36 @@ test("ships protected APIs, role policies and durable storage configuration", as
   ])
     assert.match(page, new RegExp(moduleName));
 });
+
+test("ships a readable role-aware phone application shell", async () => {
+  const [page, css, layout] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /Student:\s*\["Overview",\s*"Assignments",\s*"Events",\s*"Messages"\]/,
+  );
+  assert.match(
+    page,
+    /Faculty:\s*\["Overview",\s*"Attendance",\s*"Assignments",\s*"Messages"\]/,
+  );
+  assert.match(
+    page,
+    /Coordinator:\s*\["Overview",\s*"Events",\s*"Clubs",\s*"Messages"\]/,
+  );
+  assert.match(
+    page,
+    /Admin:\s*\["Overview",\s*"Admin",\s*"Announcements",\s*"Messages"\]/,
+  );
+  assert.match(page, /aria-label="Primary app navigation"/);
+  assert.match(page, /className="mobile-menu-dialog"/);
+  assert.match(page, /window\.scrollTo\(0, 0\)/);
+  assert.match(css, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.modal input[^}]*font-size:16px/);
+  assert.match(css, /\.record-copy p\{font-size:13px/);
+  assert.match(css, /min-height:44px/);
+  assert.match(layout, /viewportFit:\s*"cover"/);
+});

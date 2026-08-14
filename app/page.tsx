@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Landing, type AuthProfile, type AuthUser } from "./Landing";
 
@@ -54,6 +54,12 @@ const modules = [
   ["Settings", "⚙"],
   ["Admin", "⚙"],
 ];
+const mobilePrimaryByRole: Record<Role, string[]> = {
+  Student: ["Overview", "Assignments", "Events", "Messages"],
+  Faculty: ["Overview", "Attendance", "Assignments", "Messages"],
+  Coordinator: ["Overview", "Events", "Clubs", "Messages"],
+  Admin: ["Overview", "Admin", "Announcements", "Messages"],
+};
 const people: Record<Role, { name: string; sub: string; initials: string }> = {
   Student: {
     name: "Aarav Mehta",
@@ -85,7 +91,19 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [dark, setDark] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuDialog = useRef<HTMLDialogElement>(null);
+  const mobileMenuButton = useRef<HTMLButtonElement>(null);
   const role = (user?.role ?? "Student") as Role;
+  const visibleModules = modules.filter(
+    ([name]) => name !== "Admin" || role === "Admin",
+  );
+  const mobilePrimaryModules = visibleModules.filter(([name]) =>
+    mobilePrimaryByRole[role].includes(name),
+  );
+  const mobileOverflowModules = visibleModules.filter(
+    ([name]) => !mobilePrimaryByRole[role].includes(name),
+  );
   const fallbackPerson = people[role];
   const person = {
     name: user?.name ?? fallbackPerson.name,
@@ -98,10 +116,53 @@ export default function Home() {
       .toUpperCase(),
   };
 
-  async function reloadData() {
+  const resetWorkspaceState = useCallback(() => {
+    setRecords([]);
+    setActivity([]);
+    setDirectory([]);
+    setRoster([]);
+    setActive("Overview");
+    setSearch("");
+    setNotificationsOpen(false);
+    setMobileMenuOpen(false);
+    setModal(null);
+  }, []);
+
+  function openModule(name: string) {
+    setActive(name);
+    setSearch("");
+    setMobileMenuOpen(false);
+  }
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const dialog = mobileMenuDialog.current;
+    const returnFocusTo = mobileMenuButton.current;
+    const previousOverflow = document.body.style.overflow;
+    if (dialog && !dialog.open) dialog.showModal();
+    document.body.style.overflow = "hidden";
+    window.requestAnimationFrame(() =>
+      dialog
+        ?.querySelector<HTMLElement>(".mobile-sheet-close, input")
+        ?.focus(),
+    );
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (dialog?.open) dialog.close();
+      returnFocusTo?.focus();
+    };
+  }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => window.scrollTo(0, 0));
+    return () => window.cancelAnimationFrame(frame);
+  }, [active]);
+
+  const reloadData = useCallback(async () => {
     try {
       const r = await fetch("/api/campus");
       if (r.status === 401) {
+        resetWorkspaceState();
         setUser(null);
         return;
       }
@@ -116,7 +177,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [resetWorkspaceState]);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth")
@@ -143,6 +204,7 @@ export default function Home() {
       .then(({ ok, status, data }) => {
         if (cancelled) return;
         if (status === 401) {
+          resetWorkspaceState();
           setUser(null);
           return;
         }
@@ -165,7 +227,7 @@ export default function Home() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [user]);
+  }, [reloadData, resetWorkspaceState, user]);
   function flash(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(""), 2600);
@@ -252,10 +314,8 @@ export default function Home() {
 
   async function logout() {
     await fetch("/api/auth", { method: "DELETE" });
+    resetWorkspaceState();
     setUser(null);
-    setRecords([]);
-    setActivity([]);
-    setActive("Overview");
   }
   async function authUpdate(body: Record<string, unknown>) {
     const r = await fetch("/api/auth", {
@@ -300,6 +360,7 @@ export default function Home() {
     return (
       <Landing
         onAuthenticated={(u) => {
+          resetWorkspaceState();
           setLoading(true);
           setUser(u);
           setDark(Boolean(u.profile?.darkTheme));
@@ -318,11 +379,11 @@ export default function Home() {
         </button>
         <nav>
           <p className="nav-label">CAMPUS WORKSPACE</p>
-          {modules.map(([name, icon]) => (
+          {visibleModules.map(([name, icon]) => (
             <button
               key={name}
-              className={`nav-item ${active === name ? "active" : ""} ${name === "Admin" && role !== "Admin" ? "role-hidden" : ""}`}
-              onClick={() => setActive(name)}
+              className={`nav-item ${active === name ? "active" : ""}`}
+              onClick={() => openModule(name)}
             >
               <span className="nav-icon">{icon}</span>
               {name}
@@ -366,10 +427,15 @@ export default function Home() {
         <header className="topbar">
           <button
             className="mobile-logo"
-            onClick={() => flash("Use bottom navigation")}
+            onClick={() => openModule("Overview")}
+            aria-label="Open overview"
           >
             C
           </button>
+          <span className="mobile-brand-copy">
+            <strong>CampusOne</strong>
+            <small>{role} workspace</small>
+          </span>
           <label className="search">
             <span>⌕</span>
             <input
@@ -446,7 +512,13 @@ export default function Home() {
             >
               ♢{notificationItems.some((n) => n.status === "unread") && <i />}
             </button>
-            <span className="top-avatar">{person.initials}</span>
+            <button
+              className="top-avatar"
+              aria-label="Open profile"
+              onClick={() => setModal("profile")}
+            >
+              {person.initials}
+            </button>
             <button className="logout-button" onClick={logout}>
               Sign out
             </button>
@@ -688,6 +760,7 @@ export default function Home() {
                   deleteAccount={async (currentPassword) => {
                     try {
                       await authUpdate({ action: "delete", currentPassword });
+                      resetWorkspaceState();
                       setUser(null);
                       flash("Account deleted");
                     } catch (e) {
@@ -701,7 +774,7 @@ export default function Home() {
                   logout={logout}
                 />
               )}
-              {active === "Admin" && (
+              {active === "Admin" && role === "Admin" && (
                 <AdminView
                   records={records}
                   activity={activity}
@@ -738,20 +811,145 @@ export default function Home() {
           </footer>
         </div>
       </section>
-      <nav className="mobile-nav">
-        {modules
-          .filter(([name]) => name !== "Admin" || role === "Admin")
-          .map(([name, icon]) => (
-            <button
-              key={name}
-              className={active === name ? "active" : ""}
-              onClick={() => setActive(name)}
-            >
-              <span>{icon}</span>
-              {name}
-            </button>
-          ))}
+      <nav className="mobile-nav" aria-label="Primary app navigation">
+        {mobilePrimaryModules.map(([name, icon]) => (
+          <button
+            key={name}
+            className={active === name ? "active" : ""}
+            aria-current={active === name ? "page" : undefined}
+            onClick={() => openModule(name)}
+          >
+            <span className="mobile-nav-icon">{icon}</span>
+            <span className="mobile-nav-label">
+              {name === "Announcements" ? "Notices" : name}
+            </span>
+          </button>
+        ))}
+        <button
+          ref={mobileMenuButton}
+          className={
+            mobileOverflowModules.some(([name]) => name === active)
+              ? "active"
+              : ""
+          }
+          aria-expanded={mobileMenuOpen}
+          aria-controls="mobile-more-menu"
+          onClick={() => setMobileMenuOpen(true)}
+        >
+          <span className="mobile-nav-icon">•••</span>
+          <span className="mobile-nav-label">More</span>
+        </button>
       </nav>
+      {mobileMenuOpen && (
+        <dialog
+          ref={mobileMenuDialog}
+          id="mobile-more-menu"
+          className="mobile-menu-dialog"
+          aria-labelledby="mobile-menu-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            setSearch("");
+            setMobileMenuOpen(false);
+          }}
+        >
+          <button
+            className="mobile-dialog-dismiss"
+            aria-label="Close more menu"
+            tabIndex={-1}
+            onClick={() => {
+              setSearch("");
+              setMobileMenuOpen(false);
+            }}
+          />
+          <section className="mobile-menu-sheet">
+            <div className="mobile-sheet-handle" aria-hidden="true" />
+            <header>
+              <div>
+                <p>Campus workspace</p>
+                <h2 id="mobile-menu-title">More</h2>
+              </div>
+              <button
+                className="mobile-sheet-close"
+                aria-label="Close more menu"
+                onClick={() => {
+                  setSearch("");
+                  setMobileMenuOpen(false);
+                }}
+              >
+                ×
+              </button>
+            </header>
+            <label className="mobile-menu-search">
+              <span>⌕</span>
+              <input
+                aria-label="Search campus records"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search campus"
+              />
+            </label>
+            {search && (
+              <div className="mobile-search-results">
+                {globalResults.length ? (
+                  globalResults.map((record) => {
+                    const destination = moduleForKind(record.kind);
+                    return (
+                      <button
+                        key={record.id}
+                        onClick={() =>
+                          openModule(
+                            destination === "Admin" && role !== "Admin"
+                              ? "Overview"
+                              : destination,
+                          )
+                        }
+                      >
+                        <span>{iconForKind(record.kind)}</span>
+                        <p>
+                          <strong>{record.title}</strong>
+                          <small>{record.subtitle}</small>
+                        </p>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="no-results">No campus records found</p>
+                )}
+              </div>
+            )}
+            <div className="mobile-menu-grid">
+              {mobileOverflowModules.map(([name, icon]) => (
+                <button
+                  key={name}
+                  className={active === name ? "active" : ""}
+                  onClick={() => openModule(name)}
+                >
+                  <span>{icon}</span>
+                  <strong>{name === "Announcements" ? "Notices" : name}</strong>
+                  <small>{mobileModuleHint(name)}</small>
+                </button>
+              ))}
+            </div>
+            <div className="mobile-account-row">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setModal("profile");
+                }}
+              >
+                <span className="avatar">{person.initials}</span>
+                <span>
+                  <strong>{person.name}</strong>
+                  <small>View profile</small>
+                </span>
+              </button>
+              <button className="mobile-signout" onClick={logout}>
+                Sign out
+              </button>
+            </div>
+          </section>
+        </dialog>
+      )}
       {modal && (
         <Modal
           type={modal}
@@ -1909,7 +2107,7 @@ function SettingsView({
           action=""
           click={() => {}}
         />
-        <div className="setting-row">
+        <label className="setting-row">
           <div>
             <strong>Dark theme</strong>
             <span>Use a lower-light campus workspace.</span>
@@ -1920,8 +2118,8 @@ function SettingsView({
             checked={dark}
             onChange={(e) => prefs({ darkTheme: e.target.checked })}
           />
-        </div>
-        <div className="setting-row">
+        </label>
+        <label className="setting-row">
           <div>
             <strong>Email notifications</strong>
             <span>Important announcements and deadlines.</span>
@@ -1932,8 +2130,8 @@ function SettingsView({
             checked={profile?.emailNotifications ?? true}
             onChange={(e) => prefs({ emailNotifications: e.target.checked })}
           />
-        </div>
-        <div className="setting-row">
+        </label>
+        <label className="setting-row">
           <div>
             <strong>Push notifications</strong>
             <span>Real-time campus updates.</span>
@@ -1944,7 +2142,7 @@ function SettingsView({
             checked={profile?.pushNotifications ?? true}
             onChange={(e) => prefs({ pushNotifications: e.target.checked })}
           />
-        </div>
+        </label>
       </section>
       <section className="panel">
         <PanelTitle
@@ -2830,6 +3028,24 @@ function iconForKind(kind: string) {
         user: "♙",
       } as Record<string, string>
     )[kind] || "•"
+  );
+}
+function mobileModuleHint(name: string) {
+  return (
+    (
+      {
+        Attendance: "Presence & reports",
+        Assignments: "Coursework & reviews",
+        Events: "Campus activities",
+        Announcements: "Official updates",
+        Placements: "Jobs & applications",
+        Clubs: "Student communities",
+        Calendar: "Schedule & deadlines",
+        Messages: "Campus conversations",
+        Settings: "Account & preferences",
+        Admin: "People & operations",
+      } as Record<string, string>
+    )[name] || "Open module"
   );
 }
 function subtitle(active: string, role: Role, name: string) {
