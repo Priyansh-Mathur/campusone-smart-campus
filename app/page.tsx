@@ -20,6 +20,27 @@ type Activity = {
   actor: string;
   created_at: number;
 };
+type DirectoryUser = {
+  id: number;
+  name: string;
+  role: Role;
+};
+type ApiJson = {
+  error?: string;
+  message?: string;
+  user?: AuthUser;
+  records?: RecordItem[];
+  activity?: Activity[];
+  directory?: DirectoryUser[];
+  roster?: DirectoryUser[];
+  passToken?: string;
+  file?: { name: string; key: string; size: number };
+  [key: string]: unknown;
+};
+
+async function readJson(response: Response): Promise<ApiJson> {
+  return (await response.json()) as ApiJson;
+}
 const modules = [
   ["Overview", "⌂"],
   ["Attendance", "✓"],
@@ -51,68 +72,13 @@ const people: Record<Role, { name: string; sub: string; initials: string }> = {
   },
   Admin: { name: "Vikram Rao", sub: "Platform Administrator", initials: "VR" },
 };
-const schedule = [
-  {
-    time: "09:00",
-    end: "10:00",
-    title: "Machine Learning",
-    place: "Lab 302",
-    faculty: "Dr. Maya Kapoor",
-    color: "blue",
-  },
-  {
-    time: "11:00",
-    end: "12:00",
-    title: "Computer Networks",
-    place: "Room 214",
-    faculty: "Prof. Arjun Nair",
-    color: "purple",
-  },
-  {
-    time: "14:30",
-    end: "15:30",
-    title: "Database Systems",
-    place: "Room 108",
-    faculty: "Dr. Nisha Verma",
-    color: "orange",
-  },
-];
-const attendance = [
-  {
-    subject: "Machine Learning",
-    code: "CS601",
-    present: 22,
-    total: 24,
-    pct: 92,
-  },
-  {
-    subject: "Database Systems",
-    code: "CS603",
-    present: 21,
-    total: 24,
-    pct: 88,
-  },
-  {
-    subject: "Computer Networks",
-    code: "CS605",
-    present: 19,
-    total: 24,
-    pct: 79,
-  },
-  {
-    subject: "Software Engineering",
-    code: "CS607",
-    present: 23,
-    total: 25,
-    pct: 92,
-  },
-];
-
 export default function Home() {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [active, setActive] = useState("Overview");
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  const [roster, setRoster] = useState<DirectoryUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [modal, setModal] = useState<string | null>(null);
@@ -139,10 +105,12 @@ export default function Home() {
         setUser(null);
         return;
       }
-      const data = await r.json();
+      const data = await readJson(r);
       if (!r.ok) throw new Error(data.error);
       setRecords(data.records || []);
       setActivity(data.activity || []);
+      setDirectory(data.directory || []);
+      setRoster(data.roster || []);
     } catch {
       setToast("Could not load campus data");
     } finally {
@@ -152,7 +120,7 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth")
-      .then(async (r) => ({ ok: r.ok, data: await r.json() }))
+      .then(async (r) => ({ ok: r.ok, data: await readJson(r) }))
       .then(({ ok, data }) => {
         if (!cancelled) {
           setUser(ok ? data.user : null);
@@ -171,7 +139,7 @@ export default function Home() {
     if (!user) return;
     let cancelled = false;
     fetch("/api/campus")
-      .then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json() }))
+      .then(async (r) => ({ ok: r.ok, status: r.status, data: await readJson(r) }))
       .then(({ ok, status, data }) => {
         if (cancelled) return;
         if (status === 401) {
@@ -181,6 +149,8 @@ export default function Home() {
         if (!ok) throw new Error(data.error);
         setRecords(data.records || []);
         setActivity(data.activity || []);
+        setDirectory(data.directory || []);
+        setRoster(data.roster || []);
       })
       .catch(() => {
         if (!cancelled) setToast("Could not load campus data");
@@ -207,11 +177,26 @@ export default function Home() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: item.id, status, actor: person.name }),
     });
+    const data = await readJson(r).catch(() => ({} as ApiJson));
     if (!r.ok) {
-      const data = await r.json();
       flash(data.error || "Update failed");
       await reloadData();
-    } else flash(`Successfully ${status}`);
+    } else {
+      if (data.passToken) {
+        setRecords((value) =>
+          value.map((record) =>
+            record.id === item.id
+              ? {
+                  ...record,
+                  meta: { ...record.meta, passToken: data.passToken },
+                }
+              : record,
+          ),
+        );
+      }
+      flash(`Successfully ${status}`);
+      await reloadData();
+    }
   }
   async function createRecord(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -224,6 +209,12 @@ export default function Home() {
       status: kind === "announcement" ? "published" : "open",
       meta: {
         category: fd.get("category") || "Campus",
+        due: fd.get("due") || undefined,
+        points: Number(fd.get("points")) || undefined,
+        date: fd.get("date") || undefined,
+        venue: fd.get("venue") || undefined,
+        seats: Number(fd.get("seats")) || undefined,
+        skills: fd.get("skills") || undefined,
         email: fd.get("email"),
         role: fd.get("role"),
         password: fd.get("password"),
@@ -239,7 +230,7 @@ export default function Home() {
       flash(`${kind} created`);
       await reloadData();
     } else {
-      const data = await r.json();
+      const data = await readJson(r);
       flash(data.error || "Please complete all fields");
     }
   }
@@ -272,7 +263,7 @@ export default function Home() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await r.json();
+    const data = await readJson(r);
     if (!r.ok) throw new Error(data.error || "Update failed");
     if (data.user) setUser(data.user);
     return data;
@@ -282,8 +273,9 @@ export default function Home() {
     form.set("file", file);
     form.set("purpose", purpose);
     const r = await fetch("/api/uploads", { method: "POST", body: form });
-    const data = await r.json();
+    const data = await readJson(r);
     if (!r.ok) throw new Error(data.error || "Upload failed");
+    if (!data.file) throw new Error("Upload completed without a file reference");
     return data.file;
   }
   const globalResults = search.trim()
@@ -310,6 +302,7 @@ export default function Home() {
         onAuthenticated={(u) => {
           setLoading(true);
           setUser(u);
+          setDark(Boolean(u.profile?.darkTheme));
         }}
       />
     );
@@ -421,7 +414,27 @@ export default function Home() {
             <span className="role-pill">{role}</span>
             <button
               className="icon-btn"
-              onClick={() => setDark(!dark)}
+              onClick={async () => {
+                const next = !dark;
+                setDark(next);
+                try {
+                  await authUpdate({
+                    action: "preferences",
+                    darkTheme: next,
+                    emailNotifications:
+                      user.profile?.emailNotifications ?? true,
+                    pushNotifications:
+                      user.profile?.pushNotifications ?? true,
+                  });
+                } catch (error) {
+                  setDark(!next);
+                  flash(
+                    error instanceof Error
+                      ? error.message
+                      : "Theme preference could not be saved",
+                  );
+                }
+              }}
               aria-label="Toggle theme"
             >
               {dark ? "☀" : "◐"}
@@ -501,25 +514,31 @@ export default function Home() {
               {active === "Attendance" && (
                 <AttendanceView
                   role={role}
+                  records={records}
+                  roster={roster}
                   flash={flash}
-                  save={async (count) => {
+                  save={async (subject, presentUserIds) => {
                     const r = await fetch("/api/campus", {
                       method: "POST",
                       headers: { "content-type": "application/json" },
                       body: JSON.stringify({
                         kind: "attendance",
-                        title: "Machine Learning attendance",
-                        subtitle: `${count} students marked present`,
+                        title: `${subject} attendance`,
+                        subtitle: `${presentUserIds.length} students marked present`,
                         status: "completed",
-                        meta: { count, date: new Date().toISOString() },
+                        meta: {
+                          subject,
+                          presentUserIds,
+                          date: new Date().toISOString(),
+                        },
                       }),
                     });
                     if (r.ok) {
                       flash("Attendance session saved");
                       await reloadData();
                     } else {
-                      const d = await r.json();
-                      flash(d.error);
+                      const d = await readJson(r);
+                      flash(d.error || "Attendance could not be saved");
                     }
                   }}
                 />
@@ -534,6 +553,8 @@ export default function Home() {
                       key={x.id}
                       item={x}
                       role={role}
+                      records={records}
+                      directory={directory}
                       open={setModal}
                     />
                   )}
@@ -549,6 +570,7 @@ export default function Home() {
                       key={x.id}
                       item={x}
                       role={role}
+                      userId={user.id}
                       action={changeStatus}
                       open={setModal}
                     />
@@ -588,7 +610,13 @@ export default function Home() {
                   items={byKind("club")}
                   empty="No clubs found"
                   render={(x) => (
-                    <ClubCard key={x.id} item={x} action={changeStatus} />
+                    <ClubCard
+                      key={x.id}
+                      item={x}
+                      role={role}
+                      userId={user.id}
+                      action={changeStatus}
+                    />
                   )}
                 />
               )}
@@ -596,8 +624,9 @@ export default function Home() {
               {active === "Messages" && (
                 <Messages
                   items={byKind("message")}
-                  role={role}
-                  create={async (text) => {
+                  directory={directory.filter((entry) => entry.id !== user.id)}
+                  userId={user.id}
+                  create={async (recipientId, text) => {
                     const r = await fetch("/api/campus", {
                       method: "POST",
                       headers: { "content-type": "application/json" },
@@ -606,14 +635,17 @@ export default function Home() {
                         title: person.name,
                         subtitle: text,
                         status: "sent",
+                        meta: { recipientId },
                       }),
                     });
                     if (r.ok) {
                       flash("Message sent");
                       await reloadData();
+                      return true;
                     } else {
-                      const d = await r.json();
-                      flash(d.error);
+                      const d = await readJson(r);
+                      flash(d.error || "Message could not be sent");
+                      return false;
                     }
                   }}
                 />
@@ -622,7 +654,9 @@ export default function Home() {
                 <SettingsView
                   user={user}
                   dark={dark}
-                  update={async (values) => {
+                   update={async (values) => {
+                    const previousDark = dark;
+                    setDark(values.darkTheme);
                     try {
                       const data = await authUpdate({
                         action: "preferences",
@@ -631,6 +665,7 @@ export default function Home() {
                       setDark(Boolean(data.user?.profile?.darkTheme));
                       flash("Preferences saved");
                     } catch (e) {
+                      setDark(previousDark);
                       flash(e instanceof Error ? e.message : "Update failed");
                     }
                   }}
@@ -641,7 +676,7 @@ export default function Home() {
                         currentPassword,
                         newPassword,
                       });
-                      flash(data.message);
+                      flash(data.message || "Password updated");
                     } catch (e) {
                       flash(
                         e instanceof Error
@@ -687,8 +722,8 @@ export default function Home() {
                       );
                       await reloadData();
                     } else {
-                      const d = await r.json();
-                      flash(d.error);
+                      const d = await readJson(r);
+                      flash(d.error || "Delete failed");
                     }
                   }}
                 />
@@ -723,6 +758,7 @@ export default function Home() {
           close={() => setModal(null)}
           person={person}
           user={user}
+          records={records}
           saveProfile={async (profile) => {
             try {
               await authUpdate({ action: "profile", ...profile });
@@ -753,31 +789,29 @@ export default function Home() {
               flash("Assignment submitted successfully");
               await reloadData();
             } else {
-              const d = await r.json();
-              flash(d.error);
+              const d = await readJson(r);
+              flash(d.error || "Submission failed");
             }
           }}
-          finishReview={async (id, marks, feedback) => {
+          finishReview={async (submissionId, marks, feedback) => {
             const r = await fetch("/api/campus", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
                 kind: "feedback",
-                title: `Review for assignment #${id}`,
+                title: `Review for submission #${submissionId}`,
                 subtitle: feedback,
                 status: "published",
-                meta: { assignmentId: id, marks },
+                meta: { submissionId, marks, feedback },
               }),
             });
             if (r.ok) {
-              const assignment = records.find((x) => x.id === id);
-              if (assignment) await changeStatus(assignment, "graded");
               setModal(null);
               flash("Marks and feedback published");
               await reloadData();
             } else {
-              const d = await r.json();
-              flash(d.error);
+              const d = await readJson(r);
+              flash(d.error || "Review could not be published");
             }
           }}
           finishApplication={async (id, file) => {
@@ -799,8 +833,8 @@ export default function Home() {
               flash("Application submitted");
               await reloadData();
             } else {
-              const d = await r.json();
-              flash(d.error);
+              const d = await readJson(r);
+              flash(d.error || "Application failed");
             }
           }}
         />
@@ -830,16 +864,47 @@ function Overview({
 }) {
   const assignments = records.filter((x) => x.kind === "assignment"),
     events = records.filter((x) => x.kind === "event"),
-    placements = records.filter((x) => x.kind === "placement");
+    placements = records.filter((x) => x.kind === "placement"),
+    attendanceSessions = records.filter((x) => x.kind === "attendance");
+  const presentSessions = attendanceSessions.filter(
+    (session) => session.meta.present === true,
+  ).length;
+  const attendancePct = attendanceSessions.length
+    ? Math.round((presentSessions / attendanceSessions.length) * 100)
+    : null;
+  const today = new Intl.DateTimeFormat("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(new Date());
+  const timeline = records
+    .filter((record) =>
+      ["event", "assignment", "announcement"].includes(record.kind),
+    )
+    .slice(0, 3);
+  const updates: Activity[] =
+    role === "Admin" && activity.length
+      ? activity
+      : records
+          .filter((record) =>
+            ["announcement", "event", "assignment"].includes(record.kind),
+          )
+          .slice(0, 4)
+          .map((record) => ({
+            id: record.id,
+            message: record.title,
+            actor: record.kind,
+            created_at: record.created_at,
+          }));
   return (
     <>
       <div className="welcome-banner">
         <div>
-          <span>MONDAY, 10 AUGUST</span>
+          <span>{today.toUpperCase()}</span>
           <h2>Good morning, {name.split(" ")[0]} 👋</h2>
           <p>
             {role === "Student"
-              ? "You have 3 classes and 1 assignment due today."
+              ? `You have ${assignments.filter((item) => item.status === "pending").length} pending assignments and ${events.length} campus events.`
               : `Manage today’s ${role.toLowerCase()} responsibilities from one place.`}
           </p>
         </div>
@@ -853,9 +918,19 @@ function Overview({
         <Stat
           icon="✓"
           color="blue"
-          label="Overall attendance"
-          value={role === "Student" ? "86.4%" : "91.2%"}
-          detail="↑ 2.4% this month"
+          label={role === "Student" ? "Overall attendance" : "Attendance sessions"}
+          value={
+            role === "Student"
+              ? attendancePct === null
+                ? "—"
+                : `${attendancePct}%`
+              : String(attendanceSessions.length)
+          }
+          detail={
+            attendanceSessions.length
+              ? `${attendanceSessions.length} recorded sessions`
+              : "No sessions recorded yet"
+          }
         />
         <Stat
           icon="▤"
@@ -864,9 +939,9 @@ function Overview({
             role === "Student" ? "Pending assignments" : "Open submissions"
           }
           value={String(
-            assignments.filter((x) => x.status === "pending").length || 3,
+            assignments.filter((x) => x.status === "pending").length,
           )}
-          detail="1 due today"
+          detail={`${assignments.length} total assignments`}
         />
         <Stat
           icon="◇"
@@ -879,37 +954,58 @@ function Overview({
           icon="↗"
           color="green"
           label="Placement opportunities"
-          value={String(placements.length + 12)}
-          detail="8 new this week"
+          value={String(placements.length)}
+          detail="Live opportunities"
         />
       </div>
       <div className="main-grid">
         <section className="panel schedule-panel">
           <PanelTitle
-            title="Today’s schedule"
-            sub="Monday, 10 August"
+            title="Campus timeline"
+            sub={today}
             action="View calendar →"
             click={() => setActive("Calendar")}
           />
           <div className="timeline">
-            {schedule.map((s) => (
-              <div className="class-row" key={s.title}>
-                <div className="time">
-                  <strong>{s.time}</strong>
-                  <span>{s.end}</span>
-                </div>
-                <i className={s.color} />
-                <div className="class-info">
-                  <strong>{s.title}</strong>
-                  <span>
-                    {s.faculty} · {s.place}
+            {timeline.length ? (
+              timeline.map((item) => (
+                <div className="class-row" key={`${item.kind}-${item.id}`}>
+                  <div className="time">
+                    <strong>
+                      {item.kind === "event"
+                        ? "EVENT"
+                        : item.kind === "assignment"
+                          ? "DUE"
+                          : "NEWS"}
+                    </strong>
+                    <span>
+                      {new Date(item.created_at * 1000).toLocaleDateString(
+                        "en-IN",
+                        { day: "2-digit", month: "short" },
+                      )}
+                    </span>
+                  </div>
+                  <i
+                    className={
+                      item.kind === "event"
+                        ? "orange"
+                        : item.kind === "assignment"
+                          ? "purple"
+                          : "blue"
+                    }
+                  />
+                  <div className="class-info">
+                    <strong>{item.title}</strong>
+                    <span>{item.subtitle}</span>
+                  </div>
+                  <span className="live-pill">
+                    {item.status.toUpperCase()}
                   </span>
                 </div>
-                <span className="live-pill">
-                  {s.time === "09:00" ? "NEXT" : ""}
-                </span>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="no-results">No upcoming campus items.</p>
+            )}
           </div>
         </section>
         <section className="panel">
@@ -933,29 +1029,25 @@ function Overview({
         <section className="panel">
           <PanelTitle
             title="Attendance overview"
-            sub="August performance"
+            sub="Recorded sessions"
             action="Full report →"
             click={() => setActive("Attendance")}
           />
           <div className="chart-area">
             <div className="donut">
               <div>
-                <strong>86.4%</strong>
+                <strong>{attendancePct === null ? "—" : `${attendancePct}%`}</strong>
                 <span>Present</span>
               </div>
             </div>
             <div className="legend">
               <p>
                 <i className="present" />
-                Present <b>38</b>
+                Present <b>{presentSessions}</b>
               </p>
               <p>
                 <i className="absent" />
-                Absent <b>4</b>
-              </p>
-              <p>
-                <i className="leave" />
-                On leave <b>2</b>
+                Absent <b>{attendanceSessions.length - presentSessions}</b>
               </p>
             </div>
           </div>
@@ -968,19 +1060,8 @@ function Overview({
             click={() => {}}
           />
           <div className="activity-list">
-            {(activity.length
-              ? activity
-              : [
-                  {
-                    id: 1,
-                    message: "Attendance marked for Machine Learning",
-                    actor: "Dr. Maya Kapoor",
-                    created_at: 0,
-                  },
-                ]
-            )
-              .slice(0, 4)
-              .map((a) => (
+            {updates.length ? (
+              updates.slice(0, 4).map((a) => (
                 <div key={a.id}>
                   <span>●</span>
                   <p>
@@ -988,7 +1069,10 @@ function Overview({
                     <small>{a.actor} · recently</small>
                   </p>
                 </div>
-              ))}
+              ))
+            ) : (
+              <p className="no-results">No campus updates yet.</p>
+            )}
           </div>
         </section>
       </div>
@@ -997,19 +1081,61 @@ function Overview({
 }
 function AttendanceView({
   role,
+  records,
+  roster,
   flash,
   save,
 }: {
   role: Role;
+  records: RecordItem[];
+  roster: DirectoryUser[];
   flash: (x: string) => void;
-  save: (count: number) => void;
+  save: (subject: string, presentUserIds: number[]) => Promise<void>;
 }) {
-  const [marked, setMarked] = useState<string[]>([]);
+  const [marked, setMarked] = useState<number[]>([]);
+  const [subject, setSubject] = useState("Machine Learning");
+  const sessions = records.filter((record) => record.kind === "attendance");
+  const grouped = new Map<
+    string,
+    { subject: string; code: string; present: number; total: number }
+  >();
+  for (const session of sessions) {
+    const sessionSubject = String(session.meta.subject || session.title);
+    const current = grouped.get(sessionSubject) || {
+      subject: sessionSubject,
+      code: String(session.meta.code || "LIVE"),
+      present: 0,
+      total: 0,
+    };
+    if (role === "Student") {
+      current.present += session.meta.present === true ? 1 : 0;
+      current.total += 1;
+    } else {
+      const presentIds = Array.isArray(session.meta.presentUserIds)
+        ? session.meta.presentUserIds
+        : [];
+      current.present += presentIds.length;
+      current.total += Number(session.meta.rosterCount || roster.length || 0);
+    }
+    grouped.set(sessionSubject, current);
+  }
+  const summary = [...grouped.values()].map((row) => ({
+    ...row,
+    pct: row.total ? Math.round((row.present / row.total) * 100) : 0,
+  }));
   function download() {
+    const csvCell = (value: string | number) => {
+      const plain = String(value);
+      const safe = /^[=+\-@]/.test(plain) ? `'${plain}` : plain;
+      return `"${safe.replaceAll('"', '""')}"`;
+    };
     const rows = [
       "Subject,Code,Present,Total,Attendance",
-      ...attendance.map(
-        (a) => `${a.subject},${a.code},${a.present},${a.total},${a.pct}%`,
+      ...summary.map(
+        (a) =>
+          [a.subject, a.code, a.present, a.total, `${a.pct}%`]
+            .map(csvCell)
+            .join(","),
       ),
     ];
     const link = document.createElement("a");
@@ -1037,8 +1163,9 @@ function AttendanceView({
             <span>Attendance</span>
             <span>Status</span>
           </div>
-          {attendance.map((a) => (
-            <div className="table-row" key={a.code}>
+          {summary.length ? (
+            summary.map((a) => (
+            <div className="table-row" key={a.subject}>
               <span>
                 <strong>{a.subject}</strong>
                 <small>{a.code}</small>
@@ -1056,7 +1183,12 @@ function AttendanceView({
                 {a.pct >= 75 ? "On track" : "At risk"}
               </span>
             </div>
-          ))}
+            ))
+          ) : (
+            <p className="no-results">
+              No attendance sessions have been recorded yet.
+            </p>
+          )}
         </div>
       </section>
       <section className="panel">
@@ -1064,7 +1196,7 @@ function AttendanceView({
           title={role === "Faculty" ? "Take attendance" : "Monthly summary"}
           sub={
             role === "Faculty"
-              ? "Machine Learning · Lab 302"
+              ? `${roster.length} enrolled students`
               : "Your attendance trend"
           }
           action=""
@@ -1072,53 +1204,75 @@ function AttendanceView({
         />
         {role === "Faculty" ? (
           <div className="roster">
-            {[
-              "Aarav Mehta",
-              "Diya Singh",
-              "Kabir Khan",
-              "Meera Joshi",
-              "Vivaan Shah",
-            ].map((n) => (
-              <label key={n}>
+            <label className="attendance-subject">
+              <strong>Subject</strong>
+              <input
+                value={subject}
+                onChange={(event) => setSubject(event.target.value)}
+                placeholder="Course or subject name"
+              />
+            </label>
+            {roster.map((student) => (
+              <label key={student.id}>
                 <span className="avatar">
-                  {n
+                  {student.name
                     .split(" ")
                     .map((x) => x[0])
                     .join("")}
                 </span>
-                <strong>{n}</strong>
+                <strong>{student.name}</strong>
                 <input
-                  aria-label={`Mark ${n} present`}
+                  aria-label={`Mark ${student.name} present`}
                   type="checkbox"
-                  checked={marked.includes(n)}
+                  checked={marked.includes(student.id)}
                   onChange={() =>
                     setMarked((v) =>
-                      v.includes(n) ? v.filter((x) => x !== n) : [...v, n],
+                      v.includes(student.id)
+                        ? v.filter((x) => x !== student.id)
+                        : [...v, student.id],
                     )
                   }
                 />
               </label>
             ))}
+            {!roster.length && (
+              <p className="no-results">
+                No verified student accounts are available.
+              </p>
+            )}
             <button
               className="primary full"
-              disabled={!marked.length}
-              onClick={() => save(marked.length)}
+              disabled={!roster.length || !subject.trim()}
+              onClick={async () => {
+                await save(subject.trim(), marked);
+                setMarked([]);
+              }}
             >
               Save attendance session
             </button>
           </div>
         ) : (
           <div className="month-grid">
-            {Array.from({ length: 31 }, (_, i) => (
-              <span
-                className={
-                  i % 7 === 5 || i % 11 === 0 ? "absent-day" : "present-day"
-                }
-                key={i}
-              >
-                {i + 1}
-              </span>
-            ))}
+            {sessions.length ? (
+              sessions.map((session) => {
+                const date = new Date(String(session.meta.date || ""));
+                return (
+                  <span
+                    className={
+                      session.meta.present === true
+                        ? "present-day"
+                        : "absent-day"
+                    }
+                    title={String(session.meta.subject || session.title)}
+                    key={session.id}
+                  >
+                    {Number.isNaN(date.getTime()) ? "—" : date.getDate()}
+                  </span>
+                );
+              })
+            ) : (
+              <p className="no-results">No sessions yet.</p>
+            )}
           </div>
         )}
       </section>
@@ -1153,12 +1307,26 @@ function RecordView({
 function AssignmentCard({
   item,
   role,
+  records,
+  directory,
   open,
 }: {
   item: RecordItem;
   role: Role;
+  records: RecordItem[];
+  directory: DirectoryUser[];
   open: (x: string) => void;
 }) {
+  const submissions = records.filter(
+    (record) =>
+      record.kind === "submission" &&
+      Number(record.meta.assignmentId) === item.id,
+  );
+  const publishedFeedback = records.find(
+    (record) =>
+      record.kind === "feedback" &&
+      Number(record.meta.assignmentId) === item.id,
+  );
   return (
     <article className="record-card">
       <span className="large-icon purple">▤</span>
@@ -1171,6 +1339,14 @@ function AssignmentCard({
           <span>★ {String(item.meta.points || 100)} points</span>
           <span>Rubric included</span>
         </div>
+        {role === "Student" && publishedFeedback && (
+          <div className="assignment-feedback">
+            <strong>
+              {String(publishedFeedback.meta.marks || "—")} / 100
+            </strong>
+            <span>{publishedFeedback.subtitle}</span>
+          </div>
+        )}
       </div>
       <div className="record-actions">
         <span className={`state ${item.status}`}>{item.status}</span>
@@ -1182,11 +1358,29 @@ function AssignmentCard({
             {item.status === "submitted" ? "View / resubmit" : "Submit work"}
           </button>
         )}
-        {role === "Faculty" && (
-          <button className="outline" onClick={() => open(`review:${item.id}`)}>
-            Review & grade
-          </button>
-        )}
+        {role === "Faculty" &&
+          (submissions.length ? (
+            <div className="assignment-review-list">
+              {submissions.map((submission) => {
+                const owner = directory.find(
+                  (entry) => entry.id === Number(submission.meta.ownerId),
+                );
+                return (
+                  <button
+                    className="outline"
+                    key={submission.id}
+                    onClick={() => open(`review:${submission.id}`)}
+                  >
+                    Review {owner?.name || `submission #${submission.id}`}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <button className="outline" disabled>
+              No submissions yet
+            </button>
+          ))}
       </div>
     </article>
   );
@@ -1194,19 +1388,31 @@ function AssignmentCard({
 function EventCard({
   item,
   role,
+  userId,
   action,
   open,
 }: {
   item: RecordItem;
   role: Role;
+  userId: number;
   action: (x: RecordItem, s: string) => void;
   open: (x: string) => void;
 }) {
+  const capacity = Number(item.meta.seats || 80);
+  const registeredCount = Number(item.meta.registeredCount || 0);
+  const isFull = capacity > 0 && registeredCount >= capacity;
+  const eventDate =
+    typeof item.meta.date === "string" ? new Date(item.meta.date) : null;
+  const validDate = eventDate && !Number.isNaN(eventDate.getTime());
   return (
     <article className="record-card">
       <div className="date-block">
-        <strong>{item.subtitle.slice(0, 2)}</strong>
-        <span>AUG</span>
+        <strong>{validDate ? eventDate.getDate() : "—"}</strong>
+        <span>
+          {validDate
+            ? eventDate.toLocaleDateString("en-IN", { month: "short" })
+            : "TBA"}
+        </span>
       </div>
       <div className="record-copy">
         <span className="category">
@@ -1215,7 +1421,9 @@ function EventCard({
         <h3>{item.title}</h3>
         <p>{item.subtitle}</p>
         <div className="meta-row">
-          <span>◎ {String(item.meta.seats || 80)} seats</span>
+          <span>
+            ◎ {registeredCount} / {capacity} seats reserved
+          </span>
           <span>Free entry</span>
           <span>Digital QR pass</span>
         </div>
@@ -1234,6 +1442,10 @@ function EventCard({
             )}
             <button
               className={item.status === "registered" ? "outline" : "primary"}
+              disabled={
+                item.status !== "registered" &&
+                (isFull || item.status === "closed")
+              }
               onClick={() =>
                 action(
                   item,
@@ -1241,9 +1453,27 @@ function EventCard({
                 )
               }
             >
-              {item.status === "registered" ? "Cancel" : "Register"}
+              {item.status === "registered"
+                ? "Cancel"
+                : item.status === "closed"
+                  ? "Registration closed"
+                  : isFull
+                    ? "Event full"
+                    : "Register"}
             </button>
           </div>
+        )}
+        {(role === "Admin" ||
+          (role === "Coordinator" &&
+            Number(item.meta.ownerId) === userId)) && (
+          <button
+            className="outline"
+            onClick={() =>
+              action(item, item.status === "closed" ? "open" : "closed")
+            }
+          >
+            {item.status === "closed" ? "Reopen event" : "Close registration"}
+          </button>
         )}
       </div>
     </article>
@@ -1251,9 +1481,13 @@ function EventCard({
 }
 function ClubCard({
   item,
+  role,
+  userId,
   action,
 }: {
   item: RecordItem;
+  role: Role;
+  userId: number;
   action: (x: RecordItem, s: string) => void;
 }) {
   return (
@@ -1267,14 +1501,33 @@ function ClubCard({
         <p>{item.subtitle}</p>
       </div>
       <div className="record-actions">
-        <button
-          className={item.status === "joined" ? "outline" : "primary"}
-          onClick={() =>
-            action(item, item.status === "joined" ? "open" : "joined")
-          }
-        >
-          {item.status === "joined" ? "✓ Joined" : "Join club"}
-        </button>
+        {role === "Student" && (
+          <button
+            className={item.status === "joined" ? "outline" : "primary"}
+            disabled={item.status === "closed"}
+            onClick={() =>
+              action(item, item.status === "joined" ? "open" : "joined")
+            }
+          >
+            {item.status === "joined"
+              ? "✓ Joined"
+              : item.status === "closed"
+                ? "Membership closed"
+                : "Join club"}
+          </button>
+        )}
+        {(role === "Admin" ||
+          (role === "Coordinator" &&
+            Number(item.meta.ownerId) === userId)) && (
+          <button
+            className="outline"
+            onClick={() =>
+              action(item, item.status === "closed" ? "open" : "closed")
+            }
+          >
+            {item.status === "closed" ? "Open membership" : "Close membership"}
+          </button>
+        )}
       </div>
     </article>
   );
@@ -1340,15 +1593,56 @@ function Placements({
   );
 }
 function CalendarView({ records }: { records: RecordItem[] }) {
-  const days = Array.from({ length: 35 }, (_, i) => i - 2);
+  const now = new Date();
+  const [month, setMonth] = useState(
+    () => new Date(now.getFullYear(), now.getMonth(), 1),
+  );
+  const firstWeekday = (month.getDay() + 6) % 7;
+  const monthDays = new Date(
+    month.getFullYear(),
+    month.getMonth() + 1,
+    0,
+  ).getDate();
+  const previousMonthDays = new Date(
+    month.getFullYear(),
+    month.getMonth(),
+    0,
+  ).getDate();
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const dayOffset = index - firstWeekday + 1;
+    if (dayOffset < 1)
+      return { day: previousMonthDays + dayOffset, current: false };
+    if (dayOffset > monthDays)
+      return { day: dayOffset - monthDays, current: false };
+    return { day: dayOffset, current: true };
+  });
+  function recordDay(record: RecordItem) {
+    const candidate = record.meta.date || record.meta.due;
+    if (typeof candidate === "string") {
+      const parsed = new Date(candidate);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    const numericDay = record.subtitle.match(/\b([12]?\d|3[01])\b/);
+    return numericDay
+      ? new Date(month.getFullYear(), month.getMonth(), Number(numericDay[1]))
+      : null;
+  }
+  const calendarRecords = records.filter((record) =>
+    ["event", "assignment"].includes(record.kind),
+  );
   return (
     <div className="two-column calendar-layout">
       <section className="panel wide">
         <PanelTitle
-          title="August 2026"
+          title={month.toLocaleDateString("en-IN", {
+            month: "long",
+            year: "numeric",
+          })}
           sub="Academic calendar"
           action="Today"
-          click={() => {}}
+          click={() =>
+            setMonth(new Date(now.getFullYear(), now.getMonth(), 1))
+          }
         />
         <div className="calendar">
           <div className="weekdays">
@@ -1357,17 +1651,41 @@ function CalendarView({ records }: { records: RecordItem[] }) {
             ))}
           </div>
           <div className="days">
-            {days.map((d, i) => (
-              <div
-                className={d === 10 ? "today" : d < 1 ? "muted-day" : ""}
-                key={i}
-              >
-                <span>{d < 1 ? 30 + d : d}</span>
-                {d === 10 && <i>ML Lab</i>}
-                {d === 12 && <i className="event-dot">DevFusion</i>}
-                {d === 16 && <i className="event-dot">AI Seminar</i>}
-              </div>
-            ))}
+            {cells.map((cell, index) => {
+              const isToday =
+                cell.current &&
+                cell.day === now.getDate() &&
+                month.getMonth() === now.getMonth() &&
+                month.getFullYear() === now.getFullYear();
+              const entries = cell.current
+                ? calendarRecords.filter((record) => {
+                    const date = recordDay(record);
+                    return (
+                      date?.getDate() === cell.day &&
+                      date.getMonth() === month.getMonth() &&
+                      date.getFullYear() === month.getFullYear()
+                    );
+                  })
+                : [];
+              return (
+                <div
+                  className={
+                    isToday ? "today" : cell.current ? "" : "muted-day"
+                  }
+                  key={index}
+                >
+                  <span>{cell.day}</span>
+                  {entries.slice(0, 2).map((entry) => (
+                    <i
+                      className={entry.kind === "event" ? "event-dot" : ""}
+                      key={entry.id}
+                    >
+                      {entry.title}
+                    </i>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -1396,76 +1714,150 @@ function CalendarView({ records }: { records: RecordItem[] }) {
 }
 function Messages({
   items,
-  role,
+  directory,
+  userId,
   create,
 }: {
   items: RecordItem[];
-  role: Role;
-  create: (x: string) => void;
+  directory: DirectoryUser[];
+  userId: number;
+  create: (recipientId: number, text: string) => Promise<boolean>;
 }) {
   const [text, setText] = useState("");
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+  const activeSelectedId = directory.some((entry) => entry.id === selectedId)
+    ? selectedId
+    : directory[0]?.id || null;
+  const visibleDirectory = directory.filter((entry) =>
+    `${entry.name} ${entry.role}`.toLowerCase().includes(query.toLowerCase()),
+  );
+  const selected = directory.find((entry) => entry.id === activeSelectedId);
+  const conversation = items
+    .filter((item) => {
+      const senderId = Number(item.meta.ownerId);
+      const recipientId = Number(item.meta.recipientId);
+      return (
+        activeSelectedId !== null &&
+        ((senderId === userId && recipientId === activeSelectedId) ||
+          (senderId === activeSelectedId && recipientId === userId))
+      );
+    })
+    .sort((a, b) => a.created_at - b.created_at);
   return (
     <div className="messages-layout">
       <aside className="panel conversations">
-        <div className="conversation-search">⌕ Search conversations</div>
-        {items.map((x, i) => (
-          <button key={x.id} className={i === 0 ? "selected" : ""}>
+        <label className="conversation-search">
+          ⌕
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search people"
+            aria-label="Search conversations"
+          />
+        </label>
+        {visibleDirectory.map((entry) => {
+          const lastMessage = items.find(
+            (item) =>
+              Number(item.meta.ownerId) === entry.id ||
+              Number(item.meta.recipientId) === entry.id,
+          );
+          return (
+          <button
+            key={entry.id}
+            className={activeSelectedId === entry.id ? "selected" : ""}
+            onClick={() => setSelectedId(entry.id)}
+          >
             <span className="avatar">
-              {x.title
+              {entry.name
                 .split(" ")
                 .map((y) => y[0])
                 .slice(0, 2)
                 .join("")}
             </span>
             <span>
-              <strong>{x.title}</strong>
-              <small>{x.subtitle}</small>
+              <strong>{entry.name}</strong>
+              <small>{lastMessage?.subtitle || entry.role}</small>
             </span>
           </button>
-        ))}
+          );
+        })}
+        {!visibleDirectory.length && (
+          <p className="no-results">No people found.</p>
+        )}
       </aside>
       <section className="panel chat">
         <div className="chat-head">
-          <span className="avatar">MK</span>
+          <span className="avatar">
+            {selected
+              ? selected.name
+                  .split(" ")
+                  .map((part) => part[0])
+                  .slice(0, 2)
+                  .join("")
+              : "—"}
+          </span>
           <div>
-            <strong>Dr. Maya Kapoor</strong>
-            <small>● Online · Machine Learning</small>
+            <strong>{selected?.name || "Select a conversation"}</strong>
+            <small>{selected?.role || "Choose someone from the directory"}</small>
           </div>
         </div>
         <div className="chat-body">
-          <div className="bubble theirs">
-            Hi {people[role].name.split(" ")[0]}, remember to bring your laptop
-            to today’s lab.<small>9:12 AM</small>
-          </div>
-          <div className="bubble mine">
-            Sure, thank you for the reminder!<small>9:18 AM</small>
-          </div>
-          {items
-            .filter((x) => x.status === "sent")
-            .map((x) => (
-              <div className="bubble mine" key={x.id}>
-                {x.subtitle}
-                <small>Just now</small>
+          {conversation.length ? (
+            conversation.map((message) => (
+              <div
+                className={
+                  Number(message.meta.ownerId) === userId
+                    ? "bubble mine"
+                    : "bubble theirs"
+                }
+                key={message.id}
+              >
+                {message.subtitle}
+                <small>
+                  {new Date(message.created_at * 1000).toLocaleString("en-IN", {
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </small>
               </div>
-            ))}
+            ))
+          ) : (
+            <p className="no-results">
+              {selected
+                ? `Start a private conversation with ${selected.name}.`
+                : "Select someone to start messaging."}
+            </p>
+          )}
         </div>
         <form
           className="chat-input"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            if (text.trim()) {
-              create(text);
-              setText("");
+            if (text.trim() && activeSelectedId) {
+              setSending(true);
+              try {
+                if (await create(activeSelectedId, text.trim())) setText("");
+              } finally {
+                setSending(false);
+              }
             }
           }}
         >
-          <button type="button">＋</button>
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Write a message..."
+            placeholder={
+              selected ? `Message ${selected.name}...` : "Select a recipient"
+            }
+            disabled={!selected}
           />
-          <button type="submit">Send</button>
+          <button type="submit" disabled={!selected || !text.trim() || sending}>
+            {sending ? "Sending…" : "Send"}
+          </button>
         </form>
       </section>
     </div>
@@ -1494,6 +1886,7 @@ function SettingsView({
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
+  const googleOnly = user.credentialKind === "google";
   const prefs = (
     patch: Partial<{
       darkTheme: boolean;
@@ -1560,6 +1953,18 @@ function SettingsView({
           action=""
           click={() => {}}
         />
+        {googleOnly ? (
+          <div className="settings-form oauth-settings">
+            <p>
+              You signed in with Google and do not have a CampusOne password
+              yet. Use “Forgot password” after signing out to create one
+              securely.
+            </p>
+            <button className="outline" type="button" onClick={logout}>
+              Sign out of this session
+            </button>
+          </div>
+        ) : (
         <form
           className="settings-form"
           onSubmit={(e) => {
@@ -1597,6 +2002,7 @@ function SettingsView({
             Sign out of this session
           </button>
         </form>
+        )}
       </section>
       <section className="panel danger-zone">
         <PanelTitle
@@ -1609,20 +2015,26 @@ function SettingsView({
           Demo accounts are protected. A verified personal account can be
           removed after password confirmation.
         </p>
-        <label>
-          Confirm current password
-          <input
-            type="password"
-            value={deletePassword}
-            onChange={(e) => setDeletePassword(e.target.value)}
-          />
-        </label>
-        <button
-          disabled={!deletePassword}
-          onClick={() => deleteAccount(deletePassword)}
-        >
-          Delete my account
-        </button>
+        {googleOnly ? (
+          <p>Set a CampusOne password before permanently deleting this account.</p>
+        ) : (
+          <>
+            <label>
+              Confirm current password
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+              />
+            </label>
+            <button
+              disabled={!deletePassword}
+              onClick={() => deleteAccount(deletePassword)}
+            >
+              Delete my account
+            </button>
+          </>
+        )}
       </section>
     </div>
   );
@@ -1640,6 +2052,13 @@ function AdminView({
 }) {
   const managed = records.filter(
     (r) => !["notification", "message"].includes(r.kind),
+  );
+  const [managementQuery, setManagementQuery] = useState("");
+  const [visibleRecords, setVisibleRecords] = useState(12);
+  const filteredManaged = managed.filter((record) =>
+    `${record.title} ${record.subtitle} ${record.kind}`
+      .toLowerCase()
+      .includes(managementQuery.toLowerCase()),
   );
   return (
     <>
@@ -1733,10 +2152,21 @@ function AdminView({
           <PanelTitle
             title="Content & user management"
             sub="Accounts, departments, courses and published records"
-            action=""
-            click={() => {}}
-          />
-          {managed.slice(0, 12).map((r) => (
+           action=""
+           click={() => {}}
+         />
+          <label className="admin-filter">
+            <span>Search</span>
+            <input
+              value={managementQuery}
+              onChange={(event) => {
+                setManagementQuery(event.target.value);
+                setVisibleRecords(12);
+              }}
+              placeholder="Search users, courses, events and content"
+            />
+          </label>
+          {filteredManaged.slice(0, visibleRecords).map((r) => (
             <div className="managed-row" key={`${r.kind}-${r.id}`}>
               <span>{iconForKind(r.kind)}</span>
               <p>
@@ -1747,12 +2177,30 @@ function AdminView({
               </p>
               <button
                 aria-label={`Delete ${r.title}`}
-                onClick={() => remove(r)}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Permanently delete “${r.title}”? This action cannot be undone.`,
+                    )
+                  )
+                    remove(r);
+                }}
               >
                 Delete
               </button>
             </div>
           ))}
+          {!filteredManaged.length && (
+            <p className="no-results">No matching records.</p>
+          )}
+          {visibleRecords < filteredManaged.length && (
+            <button
+              className="outline admin-load-more"
+              onClick={() => setVisibleRecords((value) => value + 12)}
+            >
+              Load 12 more
+            </button>
+          )}
         </section>
         <section className="panel">
           <PanelTitle
@@ -1785,6 +2233,7 @@ function Modal({
   close,
   person,
   user,
+  records,
   saveProfile,
   submit,
   upload,
@@ -1796,6 +2245,7 @@ function Modal({
   close: () => void;
   person: { name: string; sub: string; initials: string };
   user: AuthUser;
+  records: RecordItem[];
   saveProfile: (profile: Partial<AuthProfile>) => Promise<void>;
   submit: (e: FormEvent<HTMLFormElement>) => void;
   upload: (
@@ -1821,6 +2271,7 @@ function Modal({
   const [error, setError] = useState("");
   const [kind, idText] = type.split(":");
   const id = Number(idText || 0);
+  const selectedRecord = records.find((record) => record.id === id);
   async function withUpload(purpose: string) {
     if (!file) return null;
     setBusy(true);
@@ -1850,19 +2301,35 @@ function Modal({
       <div className="ticket-modal">
         <span className="form-icon">◇</span>
         <h2>Your event pass</h2>
-        <p>DevFusion 4.0 · Main Auditorium · 12 August</p>
-        <div className="qr-code" aria-label="Scannable event ticket QR code">
-          <QRCodeSVG
-            value={`campusone://event/${id}?user=${user.id}`}
-            size={128}
-            level="H"
-            title="CampusOne event pass"
-            style={{ gridColumn: "1 / -1", placeSelf: "center" }}
-          />
-        </div>
-        <strong>
-          CAMPUS-{id}-{user.id}
-        </strong>
+        <p>
+          {selectedRecord?.title || "Campus event"} ·{" "}
+          {selectedRecord?.subtitle || "Schedule pending"}
+          {selectedRecord?.meta.venue
+            ? ` · ${String(selectedRecord.meta.venue)}`
+            : ""}
+        </p>
+        {selectedRecord?.meta.passToken ? (
+          <>
+            <div className="qr-code" aria-label="Scannable event ticket QR code">
+              <QRCodeSVG
+                value={`campusone://event/${id}?pass=${encodeURIComponent(String(selectedRecord.meta.passToken))}`}
+                size={128}
+                level="H"
+                title={`${selectedRecord.title} event pass`}
+                style={{ gridColumn: "1 / -1", placeSelf: "center" }}
+              />
+            </div>
+            <strong>
+              CAMPUS-{id}-
+              {String(selectedRecord.meta.passToken).slice(-8).toUpperCase()}
+            </strong>
+          </>
+        ) : (
+          <p className="auth-error">
+            Secure pass token is unavailable. Refresh your registration and try
+            again.
+          </p>
+        )}
         <button className="primary full" onClick={() => window.print()}>
           Print / download pass
         </button>
@@ -2171,6 +2638,57 @@ function Modal({
                 <option>Placement</option>
               </select>
             </label>
+            {kind === "event" && (
+              <>
+                <label>
+                  Event date
+                  <input type="date" name="date" required />
+                </label>
+                <label>
+                  Venue
+                  <input name="venue" required placeholder="Main Auditorium" />
+                </label>
+                <label>
+                  Seat capacity
+                  <input
+                    type="number"
+                    name="seats"
+                    min="1"
+                    max="10000"
+                    defaultValue="80"
+                    required
+                  />
+                </label>
+              </>
+            )}
+            {kind === "assignment" && (
+              <>
+                <label>
+                  Due date
+                  <input type="date" name="due" required />
+                </label>
+                <label>
+                  Maximum marks
+                  <input
+                    type="number"
+                    name="points"
+                    min="1"
+                    max="1000"
+                    defaultValue="100"
+                    required
+                  />
+                </label>
+              </>
+            )}
+            {kind === "placement" && (
+              <label>
+                Required skills
+                <input
+                  name="skills"
+                  placeholder="React, TypeScript, communication"
+                />
+              </label>
+            )}
           </>
         )}
         <button className="primary full" type="submit">

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import "./campus-api-contract.test.mjs";
+import "./oauth-contract.test.mjs";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -61,8 +63,8 @@ test("ships protected APIs, role policies and durable storage configuration", as
   assert.match(campus, /trustedWriteOrigin/);
   assert.match(auth, /action === "profile"/);
   assert.match(auth, /action === "preferences"/);
-  assert.match(google, /campusone_oauth_state/);
-  assert.match(callback, /openidconnect\.googleapis\.com/);
+  assert.match(google, /oauthAttemptCookies/);
+  assert.match(callback, /exchangeGoogleIdentity/);
   assert.match(upload, /10 \* 1024 \* 1024/);
   assert.match(upload, /R2Bucket/);
   assert.match(hosting, /"d1": "DB"/);

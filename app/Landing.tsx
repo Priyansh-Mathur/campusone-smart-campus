@@ -3,7 +3,16 @@
 import { FormEvent, useEffect, useState } from "react";
 
 export type AuthProfile = { phone:string;rollNumber:string;department:string;semester:string;skills:string;linkedin:string;github:string;bio:string;darkTheme:boolean;emailNotifications:boolean;pushNotifications:boolean };
-export type AuthUser = { id:number; name:string; email:string; role:"Student"|"Faculty"|"Coordinator"|"Admin"; verified:boolean; profile?:AuthProfile };
+export type AuthUser = {
+  id: number;
+  name: string;
+  email: string;
+  role: "Student" | "Faculty" | "Coordinator" | "Admin";
+  verified: boolean;
+  credentialKind?: "password" | "google" | "password+google";
+  authProviders?: string[];
+  profile?: AuthProfile;
+};
 
 const demos = [
   {role:"Student",email:"student@campusone.dev",icon:"ST"},
@@ -23,13 +32,13 @@ export function Landing({onAuthenticated}:{onAuthenticated:(user:AuthUser)=>void
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
 
-  useEffect(()=>{const issue=new URLSearchParams(window.location.search).get("oauth");if(!issue)return;const timer=window.setTimeout(()=>{setMode("login");setAuthOpen(true);setError(issue==="unconfigured"?"Google sign-in needs deployment credentials. Use a demo account for now.":"Google sign-in could not be completed. Please try again.");window.history.replaceState({},"",window.location.pathname)},0);return()=>window.clearTimeout(timer)},[]);
+  useEffect(()=>{const issue=new URLSearchParams(window.location.search).get("oauth");if(!issue)return;const messages:Record<string,string>={unconfigured:"Google sign-in is being configured. Use a demo account for now.",cancelled:"Google sign-in was cancelled.",invalid_state:"That sign-in request expired. Please start again.",unverified_email:"Google did not confirm this email address.",account_error:"This Google account could not be linked safely.",temporarily_unavailable:"Google sign-in is temporarily unavailable. Please retry."};const timer=window.setTimeout(()=>{setMode("login");setAuthOpen(true);setError(messages[issue]||"Google sign-in could not be completed. Please try again.");window.history.replaceState({},"",window.location.pathname)},0);return()=>window.clearTimeout(timer)},[]);
 
   async function authenticate(action:string,extra:Record<string,string>={}) {
     setBusy(true); setError("");
     try {
       const response=await fetch("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action,email,password,name,code,...extra})});
-      const data=await response.json();
+      const data=(await response.json()) as {error?:string;user?:AuthUser;demoCode?:string};
       if(!response.ok) throw new Error(data.error||"Authentication failed");
       if(data.user){onAuthenticated(data.user);return}
       if(action==="signup"){setDemoCode(data.demoCode||"");setMode("verify")}

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { compare, hash } from "bcryptjs";
-import { createSession, destroySession, enforceRateLimit, ensureAuthTables, getSessionUser, jsonError, trustedWriteOrigin } from "../../../lib/auth";
+import { createSession, deleteUserAccount, destroySession, enforceRateLimit, ensureAuthTables, getSessionUser, getUserById, jsonError, trustedWriteOrigin } from "../../../lib/auth";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -38,19 +38,19 @@ export async function POST(request: Request) {
       return Response.json({user:await getSessionUser(request)});
     }
     const currentPassword=String(payload.currentPassword??"");
-    const row=await env.DB.prepare("SELECT password_hash,email FROM users WHERE id=?").bind(user.id).first<Record<string,unknown>>();
+    const row=await env.DB.prepare("SELECT password_hash,email,credential_kind FROM users WHERE id=?").bind(user.id).first<Record<string,unknown>>();
+    if (row?.credential_kind === "google") return jsonError("Set a password through the reset flow before changing security settings or deleting this Google-only account.",403);
     if (!row || !(await compare(currentPassword,String(row.password_hash)))) return jsonError("Current password is incorrect",403);
     if (action === "password") {
       const newPassword=String(payload.newPassword??"");
       if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) return jsonError("New password needs 8+ characters, an uppercase letter and a number");
-      await env.DB.prepare("UPDATE users SET password_hash=? WHERE id=?").bind(await hash(newPassword,10),user.id).run();
+      await env.DB.prepare("UPDATE users SET password_hash=?,credential_kind=CASE WHEN credential_kind='google' THEN 'password+google' ELSE credential_kind END WHERE id=?").bind(await hash(newPassword,10),user.id).run();
       return Response.json({message:"Password changed successfully"});
     }
     if (String(row.email).endsWith("@campusone.dev")) return jsonError("Demo accounts cannot be deleted",403);
     const expiredCookie=await destroySession(request);
-    await env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(user.id).run();
-    await env.DB.prepare("DELETE FROM user_profiles WHERE user_id=?").bind(user.id).run();
-    await env.DB.prepare("DELETE FROM users WHERE id=?").bind(user.id).run();
+    if (!(await deleteUserAccount(user.id)))
+      return jsonError("Account could not be found",404);
     return Response.json({deleted:true},{headers:{"Set-Cookie":expiredCookie}});
   }
 
@@ -60,7 +60,9 @@ export async function POST(request: Request) {
     if (!row || !(await compare(password, String(row.password_hash)))) return jsonError("Invalid email or password", 401);
     if (!row.verified) return jsonError("Verify your email before signing in", 403);
     const cookie = await createSession(Number(row.id));
-    return Response.json({ user:{ id:Number(row.id),name:String(row.name),email:String(row.email),role:String(row.role),verified:true } }, { headers:{ "Set-Cookie":cookie } });
+    const user = await getUserById(Number(row.id));
+    if (!user) return jsonError("Authentication failed",500);
+    return Response.json({ user }, { headers:{ "Set-Cookie":cookie,"Cache-Control":"no-store" } });
   }
 
   if (action === "signup") {
@@ -83,7 +85,9 @@ export async function POST(request: Request) {
     const row = await env.DB.prepare("UPDATE users SET verified=1,verification_code=NULL WHERE email=? AND verification_code=? RETURNING id,name,email,role").bind(email,code).first<Record<string, unknown>>();
     if (!row) return jsonError("Incorrect or expired verification code");
     const cookie = await createSession(Number(row.id));
-    return Response.json({ user:{...row,verified:true} }, { headers:{"Set-Cookie":cookie} });
+    const user = await getUserById(Number(row.id));
+    if (!user) return jsonError("Authentication failed",500);
+    return Response.json({ user }, { headers:{"Set-Cookie":cookie,"Cache-Control":"no-store"} });
   }
 
   if (action === "forgot") {
@@ -98,7 +102,7 @@ export async function POST(request: Request) {
     if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) return jsonError("Password needs 8+ characters, an uppercase letter and a number");
     const row = await env.DB.prepare("SELECT id FROM users WHERE email=? AND reset_code=?").bind(email,code).first<{id:number}>();
     if (!row) return jsonError("Incorrect or expired reset code");
-    await env.DB.prepare("UPDATE users SET password_hash=?,reset_code=NULL WHERE id=?").bind(await hash(password,10),row.id).run();
+    await env.DB.prepare("UPDATE users SET password_hash=?,reset_code=NULL,credential_kind=CASE WHEN credential_kind='google' THEN 'password+google' ELSE credential_kind END WHERE id=?").bind(await hash(password,10),row.id).run();
     return Response.json({ message:"Password reset successfully" });
   }
 
